@@ -1,0 +1,13 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+via_ir = true
+
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+]
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+unknown_chain = { key = "${TENDERLY_ACCESS_KEY}", chain = 76222, url = "${VERIFIER_URL}" }
