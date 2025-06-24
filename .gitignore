@@ -5,3 +5,5 @@ out/
 lib/
 .env
 logs.md
+coverage-report/
+lcov.info
