@@ -10,6 +10,9 @@ import {
     DecreaseLiquidityParams,
     CollectParams
 } from "./interfaces/external/INonFungiblePositionManager.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 struct Deposit {
     bytes16 id;
@@ -22,7 +25,7 @@ struct Deposit {
     uint256 amount1Remaining;
 }
 
-contract VelodromeLiquidityManager {
+contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, PausableUpgradeable {
     address public tokenA;
     address public tokenB;
     IUniversalRouter public universalRouter;
@@ -40,9 +43,9 @@ contract VelodromeLiquidityManager {
     mapping(address => bytes16[]) public userDepositIds;
 
     /// @notice Emitted when a user makes a deposit
-    event DepositMade(address indexed user, bytes16 indexed depositId, uint256 amountA, uint256 amountB, uint256 shares);
+    event FundsDeposited(address indexed user, bytes16 indexed depositId, uint256 amountA, uint256 amountB, uint256 shares);
     /// @notice Emitted when a user withdraws
-    event Withdrawn(address indexed user, bytes16 indexed depositId, uint256 amountA);
+    event FundsWithdrawn(address indexed user, bytes16 indexed depositId, uint256 amountA);
 
     /**
      * @notice Contract constructor
@@ -55,7 +58,7 @@ contract VelodromeLiquidityManager {
      * @param _tickLower Lower tick for the position
      * @param _tickUpper Upper tick for the position
      */
-    constructor(
+    function initialize(
         address _tokenA,
         address _tokenB,
         address _universalRouter,
@@ -64,7 +67,9 @@ contract VelodromeLiquidityManager {
         int24 _tickSpacing,
         int24 _tickLower,
         int24 _tickUpper
-    ) {
+    ) public initializer {
+        __Ownable_init(msg.sender);
+        __Pausable_init();
         tokenA = _tokenA;
         tokenB = _tokenB;
         v3SwapExactIn = _v3SwapExactIn;
@@ -73,11 +78,18 @@ contract VelodromeLiquidityManager {
         tickUpper = _tickUpper;
         universalRouter = IUniversalRouter(_universalRouter);
         nonfungiblePositionManager = INonfungiblePositionManager(_nonfungiblePositionManager);
-        // Approve once pattern for gas savings
         IERC20(tokenA).approve(address(universalRouter), type(uint256).max);
         IERC20(tokenB).approve(address(universalRouter), type(uint256).max);
         IERC20(tokenA).approve(address(nonfungiblePositionManager), type(uint256).max);
         IERC20(tokenB).approve(address(nonfungiblePositionManager), type(uint256).max);
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     /**
@@ -104,8 +116,10 @@ contract VelodromeLiquidityManager {
      * @return liquidityToRemove The liquidity removed
      */
     function _decreaseAndCollectLiquidity(uint256 shares) internal returns (uint256 collectedAmount0, uint256 collectedAmount1, uint128 liquidityToRemove) {
+        if (totalShares == 0) return (0, 0, 0);
         (, , , , , , , uint128 totalPositionLiquidity, , , , ) = nonfungiblePositionManager.positions(positionTokenId);
         liquidityToRemove = uint128((shares * totalPositionLiquidity) / totalShares);
+        totalShares -= shares;
 
         DecreaseLiquidityParams memory params = DecreaseLiquidityParams({
             tokenId: positionTokenId,
@@ -149,7 +163,7 @@ contract VelodromeLiquidityManager {
      * @param _depositId The unique deposit ID
      * @param amount The amount of tokenA to deposit
      */
-    function deposit(bytes16 _depositId, uint256 amount) public {
+    function deposit(bytes16 _depositId, uint256 amount) public whenNotPaused returns (uint256) {
         require(_depositId != 0, "Deposit ID cannot be zero");
         require(userDepositDetails[msg.sender][_depositId].shares == 0, "Deposit ID already exists for user");
         require(amount > 0, "Deposit amount must be greater than 0");
@@ -161,7 +175,9 @@ contract VelodromeLiquidityManager {
         uint256 balanceBAfter = IERC20(tokenB).balanceOf(address(this));
         uint256 amountB = balanceBAfter - balanceBBefore;
 
-        addLiquidity(amount - swapAmount, amountB, msg.sender, _depositId);
+        uint256 sharesToMint = addLiquidity(amount - swapAmount, amountB, msg.sender, _depositId);
+        emit FundsDeposited(msg.sender, _depositId, amount - swapAmount, amountB, sharesToMint);
+        return sharesToMint;
     }
 
     /**
@@ -171,7 +187,7 @@ contract VelodromeLiquidityManager {
      * @param depositor The user address
      * @param depositId The deposit ID
      */
-    function addLiquidity(uint256 amountA, uint256 amountB, address depositor, bytes16 depositId) internal {
+    function addLiquidity(uint256 amountA, uint256 amountB, address depositor, bytes16 depositId) internal returns (uint256) {
         // No need to approve here due to approve-once pattern
         uint256 sharesToMint;
         uint256 amount0Used;
@@ -231,20 +247,21 @@ contract VelodromeLiquidityManager {
             amount1Remaining: amountA - amount1Used
         });
         userDepositIds[depositor].push(depositId);
-        emit DepositMade(depositor, depositId, amountA, amountB, sharesToMint);
+        emit FundsDeposited(depositor, depositId, amountA, amountB, sharesToMint);
+        return sharesToMint;
     }
 
     /**
      * @notice Withdraw a user's deposit, remove liquidity, swap back to tokenA, and transfer to user
      * @param depositId The deposit ID to withdraw
      */
-    function withdraw(bytes16 depositId) public {
+    function withdraw(bytes16 depositId) public whenNotPaused returns (uint256) {
         Deposit storage depositToWithdraw = userDepositDetails[msg.sender][depositId];
         uint256 shares = depositToWithdraw.shares;
         require(shares > 0, "Deposit not found or already withdrawn for user");
+        require(depositToWithdraw.id == depositId, "Only deposit owner can withdraw");
 
         (uint256 collectedAmount0, uint256 collectedAmount1, ) = _decreaseAndCollectLiquidity(shares);
-        totalShares -= shares;
 
         _removeUserDepositId(msg.sender, depositId);
 
@@ -264,7 +281,8 @@ contract VelodromeLiquidityManager {
         if (finalTokenAAmount > 0) {
             IERC20(tokenA).transfer(msg.sender, finalTokenAAmount);
         }
-        emit Withdrawn(msg.sender, depositId, finalTokenAAmount);
+        emit FundsWithdrawn(msg.sender, depositId, finalTokenAAmount);
+        return finalTokenAAmount;
     }
 
     /**

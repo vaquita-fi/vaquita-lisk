@@ -2,8 +2,8 @@ node_modules/
 broadcast/
 cache/
 out/
-lib/
 .env
 logs.md
 coverage-report/
 lcov.info
+output*
