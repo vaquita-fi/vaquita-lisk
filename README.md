@@ -117,7 +117,7 @@ The Save to Earn model incentivizes users to maintain their deposits over time, 
    ```
 3. **Export coverage to PDF (all sections):**
    ```sh
-   ./coverage-to-pdf.sh
+   ./generate-report.sh
    ```
 
 ---

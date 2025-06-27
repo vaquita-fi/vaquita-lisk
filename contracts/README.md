@@ -66,7 +66,7 @@ This project is designed for advanced DeFi protocols and power users who want to
 
 ## Development Workflow
 
-See [contracts/README.md](contracts/README.md) for full Foundry usage, including:
+See [contracts/README.md](README.md) for full Foundry usage, including:
 - Build: `forge build`
 - Test: `forge test`
 - Coverage: `forge coverage --ir-minimum --report lcov && genhtml lcov.info --output-directory coverage-report`
