@@ -31,8 +31,6 @@ abstract contract TestUtils is Test {
         inputs[0] = abi.encode(whale, swapAmount, 0, path, true);
         try IUniversalRouter(universalRouter).execute(commands, inputs, block.timestamp + 1 hours) {
             console.log("Whale swap executed successfully");
-        } catch Error(string memory reason) {
-            console.log("Whale swap failed:", reason);
         } catch {
             console.log("Whale swap failed with unknown error");
         }
@@ -69,5 +67,12 @@ abstract contract TestUtils is Test {
         vm.startPrank(funder);
         token.transfer(recipient, amount);
         vm.stopPrank();
+    }
+
+    /// @notice Gets the ProxyAdmin address from a TransparentUpgradeableProxy
+    function _getProxyAdmin(address proxy) internal view returns (address) {
+        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
+        bytes32 adminBytes = vm.load(proxy, adminSlot);
+        return address(uint160(uint256(adminBytes)));
     }
 } 

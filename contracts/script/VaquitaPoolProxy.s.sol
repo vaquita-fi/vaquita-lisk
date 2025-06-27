@@ -7,28 +7,29 @@ import {TransparentUpgradeableProxy} from "../lib/openzeppelin-contracts/contrac
 import {ProxyAdmin} from "../lib/openzeppelin-contracts/contracts/proxy/transparent/ProxyAdmin.sol";
 
 contract VaquitaPoolProxyScript is Script {
-    function run() public returns (address) {
-        vm.startBroadcast();
+    function run(address _liquidityManager) public returns (address) {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        address owner = vm.addr(deployerPrivateKey);
+        vm.startBroadcast(deployerPrivateKey);
 
         // Deploy implementation
         VaquitaPool implementation = new VaquitaPool();
         console.log("VaquitaPool implementation:", address(implementation));
 
         // Encode initializer data
-        address token = address(0xF242275d3a6527d877f2c927a82D9b057609cc71);
-        address liquidityManager = address(0x0000000000000000000000000000000000000000);
+        address token = address(0xF242275d3a6527d877f2c927a82D9b057609cc71); // USDC
         uint256 lockPeriod = 1 days;
         bytes memory initData = abi.encodeWithSelector(
             implementation.initialize.selector,
             token,
-            liquidityManager,
+            _liquidityManager,
             lockPeriod
         );
 
         // Deploy proxy
         TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
             address(implementation),
-            address(this),
+            owner,
             initData
         );
         console.log("VaquitaPool proxy:", address(proxy));

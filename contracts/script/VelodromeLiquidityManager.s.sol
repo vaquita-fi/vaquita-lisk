@@ -7,13 +7,13 @@ import {VelodromeLiquidityManager} from "../src/VelodromeLiquidityManager.sol";
 contract VelodromeLiquidityManagerScript is Script {
     VelodromeLiquidityManager public liquidityManager;
 
-    function setUp() public {}
-
-    function run() public {
+    function run() public returns (address) {
         vm.startBroadcast();
 
         liquidityManager = new VelodromeLiquidityManager();
 
         vm.stopBroadcast();
+
+        return address(liquidityManager);
     }
 }

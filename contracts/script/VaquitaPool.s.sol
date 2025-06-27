@@ -7,13 +7,13 @@ import {VaquitaPool} from "../src/VaquitaPool.sol";
 contract VaquitaPoolScript is Script {
     VaquitaPool public vaquita;
 
-    function setUp() public {}
-
-    function run() public {
+    function run() public returns (address) {
         vm.startBroadcast();
 
         vaquita = new VaquitaPool();
 
         vm.stopBroadcast();
+
+        return address(vaquita);
     }
 }

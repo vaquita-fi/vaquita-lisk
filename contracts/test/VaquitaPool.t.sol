@@ -12,7 +12,7 @@ import {IUniversalRouter} from "../src/interfaces/external/IUniversalRouter.sol"
 import {TestUtils} from "./TestUtils.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract VaquitaPoolTest is Test, TestUtils {
+contract VaquitaPoolTest is TestUtils {
     VaquitaPool public vaquita;
     IERC20 public token;
     IERC20 public lpPairToken;
@@ -167,7 +167,8 @@ contract VaquitaPoolTest is Test, TestUtils {
 
     function test_DepositWithApproval() public {
         bytes16 aliceDepositId = bytes16(keccak256(abi.encodePacked(alice, block.timestamp)));
-        deposit(alice, aliceDepositId, initialAmount);
+        uint256 shares = deposit(alice, aliceDepositId, initialAmount);
+        assertGt(shares, 0);
     }
 
     function test_WithdrawAfterLock() public {

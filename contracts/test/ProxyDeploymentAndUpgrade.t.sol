@@ -2,13 +2,14 @@
 pragma solidity ^0.8.25;
 
 import {Test} from "forge-std/Test.sol";
-import {VaquitaPool} from "../src/VaquitaPool.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 import {VelodromeLiquidityManager} from "../src/VelodromeLiquidityManager.sol";
-import {TransparentUpgradeableProxy} from "../lib/openzeppelin-contracts/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-import {ITransparentUpgradeableProxy} from "../lib/openzeppelin-contracts/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-import {ProxyAdmin} from "../lib/openzeppelin-contracts/contracts/proxy/transparent/ProxyAdmin.sol";
+import {VaquitaPool} from "../src/VaquitaPool.sol";
+import {TestUtils} from "./TestUtils.sol";
 
-contract ProxyDeploymentAndUpgradeTest is Test {
+contract ProxyDeploymentAndUpgradeTest is TestUtils {
     address tokenA = address(0xF242275d3a6527d877f2c927a82D9b057609cc71);
     address tokenB = address(0x05D032ac25d322df992303dCa074EE7392C117b9);
     address universalRouter = address(0x652e53C6a4FE39B6B30426d9c96376a105C89A95);
@@ -45,13 +46,6 @@ contract ProxyDeploymentAndUpgradeTest is Test {
         VelodromeLiquidityManager proxied = VelodromeLiquidityManager(address(proxyLiquidityManager));
         assertEq(proxied.tokenA(), tokenA, "tokenA should be set");
         assertEq(proxied.tokenB(), tokenB, "tokenB should be set");
-    }
-
-    // Helper function to get the ProxyAdmin address from a TransparentUpgradeableProxy
-    function _getProxyAdmin(address proxy) internal view returns (address) {
-        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        bytes32 adminBytes = vm.load(proxy, adminSlot);
-        return address(uint160(uint256(adminBytes)));
     }
 
     function test_VelodromeLiquidityManagerUpgrade() public {

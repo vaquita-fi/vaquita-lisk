@@ -8,15 +8,17 @@ import {ProxyAdmin} from "../lib/openzeppelin-contracts/contracts/proxy/transpar
 
 contract VelodromeLiquidityManagerProxyScript is Script {
     function run() public returns (address) {
-        vm.startBroadcast();
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
+        address owner = vm.addr(deployerPrivateKey);
 
         // Deploy implementation
         VelodromeLiquidityManager implementation = new VelodromeLiquidityManager();
         console.log("VelodromeLiquidityManager implementation:", address(implementation));
 
         // Encode initializer data
-        address tokenA = address(0xF242275d3a6527d877f2c927a82D9b057609cc71);
-        address tokenB = address(0x05D032ac25d322df992303dCa074EE7392C117b9);
+        address tokenA = address(0xF242275d3a6527d877f2c927a82D9b057609cc71); // USDC.e
+        address tokenB = address(0x05D032ac25d322df992303dCa074EE7392C117b9); // USDT
         address universalRouter = address(0x652e53C6a4FE39B6B30426d9c96376a105C89A95);
         address nonfungiblePositionManager = address(0x991d5546C4B442B4c5fdc4c8B8b8d131DEB24702);
         uint256 v3SwapExactIn = 0x00;
@@ -38,7 +40,7 @@ contract VelodromeLiquidityManagerProxyScript is Script {
         // Deploy proxy
         TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
             address(implementation),
-            address(this),
+            owner,
             initData
         );
         console.log("VelodromeLiquidityManager proxy:", address(proxy));

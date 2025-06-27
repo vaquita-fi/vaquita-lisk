@@ -7,21 +7,19 @@ import {TransparentUpgradeableProxy} from "../lib/openzeppelin-contracts/contrac
 import {ITransparentUpgradeableProxy} from "../lib/openzeppelin-contracts/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 contract UpgradeVelodromeLiquidityManagerScript is Script {
-    function run() public {
-        vm.startBroadcast();
+    function run(address _proxyAdmin, address _proxy, address _newImplementation) public returns (address) {
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
 
-        // Set these addresses before running the script
-        address proxyAdminAddr = address(0x0000000000000000000000000000000000000000);
-        address proxyAddr = address(0x0000000000000000000000000000000000000000);
-        address newImplementation = address(0x0000000000000000000000000000000000000000);
-
-        ProxyAdmin proxyAdmin = ProxyAdmin(proxyAdminAddr);
-        TransparentUpgradeableProxy proxy = TransparentUpgradeableProxy(payable(proxyAddr));
+        ProxyAdmin proxyAdmin = ProxyAdmin(_proxyAdmin);
+        TransparentUpgradeableProxy proxy = TransparentUpgradeableProxy(payable(_proxy));
 
         // Upgrade the proxy to the new implementation (no call data)
-        proxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(address(proxy)), newImplementation, "");
-        console.log("Proxy upgraded to new implementation:", newImplementation);
+        proxyAdmin.upgradeAndCall(ITransparentUpgradeableProxy(address(proxy)), _newImplementation, "");
+        console.log("Proxy upgraded to new implementation:", _newImplementation);
 
         vm.stopBroadcast();
+
+        return address(proxy);
     }
 } 
