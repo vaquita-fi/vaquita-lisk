@@ -155,7 +155,7 @@ contract VaquitaPoolTest is Test, TestUtils {
         console.logBytes(signature);
         
         // Now make the deposit
-        vaquita.deposit(aliceDepositId, initialAmount, deadline, signature);
+        deposit(alice, aliceDepositId, initialAmount);
         
         // Verify the deposit was successful
         (address positionOwner,, uint256 shares,,,) = vaquita.getPosition(aliceDepositId);
@@ -447,11 +447,11 @@ contract VaquitaPoolTest is Test, TestUtils {
 
         // Deposit should revert when paused
         vm.prank(alice);
+        token.approve(address(vaquita), 1e6);
         vm.expectRevert();
         vaquita.deposit(bytes16(keccak256("id1")), 1e6, block.timestamp + 1 days, "");
 
         // Withdraw should revert when paused
-        vm.prank(alice);
         vm.expectRevert();
         vaquita.withdraw(bytes16(keccak256("id1")));
 
@@ -474,5 +474,72 @@ contract VaquitaPoolTest is Test, TestUtils {
         vm.prank(owner);
         vaquita.unpause();
         assertFalse(vaquita.paused(), "Contract should be unpaused");
+    }
+
+    function test_UpdateEarlyWithdrawalFee() public {
+        // Only owner can update
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        vaquita.updateEarlyWithdrawalFee(100);
+
+        // Owner can update
+        vm.prank(owner);
+        vaquita.updateEarlyWithdrawalFee(100);
+        assertEq(vaquita.earlyWithdrawalFee(), 100, "Early withdrawal fee should be updated");
+
+        // Revert if fee > BASIS_POINTS
+        vm.prank(owner);
+        vm.expectRevert(VaquitaPool.InvalidFee.selector);
+        vaquita.updateEarlyWithdrawalFee(10001);
+    }
+
+    function test_UpdateLockPeriod() public {
+        // Only owner can update
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        vaquita.updateLockPeriod(2 days);
+
+        // Owner can update
+        vm.prank(owner);
+        vaquita.updateLockPeriod(2 days);
+        assertEq(vaquita.lockPeriod(), 2 days, "Lock period should be updated");
+    }
+
+    function test_WithdrawProtocolFees() public {
+        // Set early withdrawal fee to 5%
+        vm.prank(owner);
+        vaquita.updateEarlyWithdrawalFee(500); // 5%
+
+        // Alice deposits
+        bytes16 aliceDepositId = bytes16(keccak256(abi.encodePacked(alice, block.timestamp)));
+        deposit(alice, aliceDepositId, initialAmount);
+
+        // Simulate whale swap to generate LP fees
+        generateSwapFees(
+            whale,
+            token,
+            lpPairToken,
+            universalRouter,
+            v3SwapExactIn,
+            tickSpacing,
+            1_000_000e6
+        );
+
+        // Alice withdraws early (before lock period ends)
+        vm.warp(block.timestamp + lockPeriod / 2);
+        withdraw(alice, aliceDepositId);
+
+        // Protocol fees should be greater than 0
+        assertGt(vaquita.protocolFees(), 0, "Protocol fees should be greater than 0 after early withdrawal");
+
+        // Only owner can withdraw protocol fees
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
+        vaquita.withdrawProtocolFees();
+
+        // Owner withdraws protocol fees
+        vm.prank(owner);
+        vaquita.withdrawProtocolFees();
+        assertEq(vaquita.protocolFees(), 0, "Protocol fees should be zero after withdrawal");
     }
 }

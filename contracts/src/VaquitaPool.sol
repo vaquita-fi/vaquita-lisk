@@ -215,16 +215,6 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable {
     }
 
     /**
-     * @notice Get the current reward pool distribution percentage
-     * @dev Returns the reward pool as a percentage of total deposits (in basis points)
-     * @return The reward pool percentage (in basis points)
-     */
-    function getRewardPoolDistribution() external view returns (uint256) {
-        if (totalShares == 0) return 0;
-        return (rewardPool * BASIS_POINTS) / totalShares;
-    }
-
-    /**
      * @notice Withdraw protocol fees to the contract owner
      */
     function withdrawProtocolFees() external onlyOwner whenNotPaused {
