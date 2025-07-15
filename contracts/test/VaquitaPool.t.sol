@@ -3,14 +3,14 @@ pragma solidity ^0.8.25;
 
 import "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {VaquitaPool} from "../src/VaquitaPool.sol";
 import {IVelodromeLiquidityManager} from "../src/interfaces/IVelodromeLiquidityManager.sol";
 import {VelodromeLiquidityManager} from "../src/VelodromeLiquidityManager.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPermit} from "../src/interfaces/IPermit.sol";
 import {IUniversalRouter} from "../src/interfaces/external/IUniversalRouter.sol";
 import {TestUtils} from "./TestUtils.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract VaquitaPoolTest is TestUtils {
     VaquitaPool public vaquita;
@@ -27,7 +27,7 @@ contract VaquitaPoolTest is TestUtils {
     uint256 public charliePrivateKey;
     address public universalRouter;
     address public positionManager;
-    uint256 public initialAmount = 1_000e6; // 1M USDC
+    uint256 public initialAmount = 1_000e6;
     uint256 public lockPeriod = 1 days;
 
     // Mainnet addresses (replace with real ones for your deployment)
@@ -37,7 +37,7 @@ contract VaquitaPoolTest is TestUtils {
     address constant POSITION_MANAGER_ADDRESS = 0x991d5546C4B442B4c5fdc4c8B8b8d131DEB24702; // USDC rich address
     address constant WHALE_ADDRESS = 0xC859c755E8C0568fD86F7860Bcf9A59D6F57BEB5; // USDC rich address
 
-    uint256 public v3SwapExactIn = 0x00;
+    uint8 public v3SwapExactIn = 0x00;
     int24 public tickSpacing = 1;
     int24 public tickLower = 3;
     int24 public tickUpper = 6;
@@ -68,7 +68,9 @@ contract VaquitaPoolTest is TestUtils {
             tickUpper
         );
         vaquita = new VaquitaPool();
-        vaquita.initialize(address(token), address(liquidityManager), lockPeriod);
+        uint256[] memory lockPeriods = new uint256[](1);
+        lockPeriods[0] = lockPeriod;
+        vaquita.initialize(address(token), address(liquidityManager), lockPeriods);
         // Fund users with USDC from whale
         vm.startPrank(whale);
         token.transfer(alice, initialAmount);
@@ -85,7 +87,7 @@ contract VaquitaPoolTest is TestUtils {
     ) public returns (uint256) {
         vm.startPrank(user);
         token.approve(address(vaquita), depositAmount);
-        uint256 shares = vaquita.deposit(depositId, depositAmount, block.timestamp + 1 hours, "");
+        uint256 shares = vaquita.deposit(depositId, depositAmount, lockPeriod, block.timestamp + 1 hours, "");
         vm.stopPrank();
         return shares;
     }
@@ -184,14 +186,26 @@ contract VaquitaPoolTest is TestUtils {
         vm.startPrank(owner);
         uint256 rewardAmount = 1000e6;
         uint256 ownerBalanceBefore = token.balanceOf(owner);
-        uint256 rewardPoolBefore = vaquita.rewardPool();
+        (uint256 rewardPoolBefore,,) = vaquita.periods(lockPeriod);
         token.approve(address(vaquita), rewardAmount);
-        vaquita.addRewards(rewardAmount);
+        vaquita.addRewards(lockPeriod, rewardAmount);
         uint256 ownerBalanceAfter = token.balanceOf(owner);
-        uint256 rewardPoolAfter = vaquita.rewardPool();
+        (uint256 rewardPoolAfter,,) = vaquita.periods(lockPeriod);
         assertEq(rewardPoolAfter, rewardPoolBefore + rewardAmount, "Reward pool should increase by rewardAmount");
         assertEq(ownerBalanceAfter, ownerBalanceBefore - rewardAmount, "Owner balance should decrease by rewardAmount");
         vm.stopPrank();
+    }
+
+    function test_AddLockPeriod() public {
+        uint256 newLockPeriod = 7 days;
+        // Should not be supported initially
+        bool supportedBefore = vaquita.isSupportedLockPeriod(newLockPeriod);
+        assertFalse(supportedBefore, "New lock period should not be supported before adding");
+        // Add new lock period
+        vaquita.addLockPeriod(newLockPeriod);
+        // Should be supported after
+        bool supportedAfter = vaquita.isSupportedLockPeriod(newLockPeriod);
+        assertTrue(supportedAfter, "New lock period should be supported after adding");
     }
 
     function test_EarlyWithdrawal() public {
@@ -212,9 +226,10 @@ contract VaquitaPoolTest is TestUtils {
 
         uint256 aliceWithdrawal = withdraw(alice, aliceDepositId);
         uint256 aliceBalanceAfter = token.balanceOf(alice);
-        assertEq(vaquita.totalDeposits(), 0, "Total deposits should be 0");
-        assertEq(vaquita.totalShares(), 0, "Total shares should be 0");
-        assertEq(vaquita.rewardPool(), 50e6, "Reward pool should be 50e6");
+        (uint256 rewardPool, uint256 totalDeposits, uint256 totalShares) = vaquita.periods(lockPeriod);
+        assertEq(totalDeposits, 0, "Total deposits should be 0");
+        assertEq(totalShares, 0, "Total shares should be 0");
+        assertEq(rewardPool, 50e6, "Reward pool should be 50e6");
         assertEq(aliceWithdrawal, initialAmount, "Alice should withdraw all her shares");
         assertEq(aliceBalanceBefore, aliceBalanceAfter, "Alice should not have lost any balance");
     }
@@ -227,7 +242,7 @@ contract VaquitaPoolTest is TestUtils {
         uint256 rewardAmount = 300e6;
         vm.startPrank(owner);
         token.approve(address(vaquita), rewardAmount);
-        vaquita.addRewards(rewardAmount);
+        vaquita.addRewards(lockPeriod, rewardAmount);
         vm.stopPrank();
 
         // Alice deposits
@@ -255,11 +270,9 @@ contract VaquitaPoolTest is TestUtils {
         // Wait for lock period
         vm.warp(block.timestamp + lockPeriod);
 
-        console.log("vaquita.rewardPool()", vaquita.rewardPool());
-        console.log("vaquita.totalShares()", vaquita.totalShares());
-
-        uint256 totalShares = vaquita.totalShares();
-        uint256 rewardPool = vaquita.rewardPool();
+        (uint256 rewardPool,, uint256 totalShares) = vaquita.periods(lockPeriod);
+        console.log("vaquita.rewardPool()", rewardPool);
+        console.log("vaquita.totalShares()", totalShares);
 
         uint256 aliceReward = aliceShares * rewardPool / totalShares;
         uint256 bobReward = bobShares * (rewardPool - aliceReward) / (totalShares - aliceShares);
@@ -296,8 +309,11 @@ contract VaquitaPoolTest is TestUtils {
         // Verify both users got more than they deposited
         assertGt(aliceTotal, initialAmount, "Alice should profit");
         assertGt(bobTotal, initialAmount * 2, "Bob should profit");
-        console.log("Reward pool:", vaquita.rewardPool());
-        assertEq(vaquita.rewardPool(), 0, "Reward pool should be 0");
+        (uint256 rewardPoolAfter, uint256 totalDepositsAfter, uint256 totalSharesAfter) = vaquita.periods(lockPeriod);
+        console.log("Reward pool:", rewardPoolAfter);
+        assertEq(rewardPoolAfter, 0, "Reward pool should be 0");
+        assertEq(totalDepositsAfter, 0, "Total deposits should be 0");
+        assertEq(totalSharesAfter, 0, "Total shares should be 0");
     }
 
     function test_WhaleSwapGeneratesFees() public {
@@ -364,12 +380,6 @@ contract VaquitaPoolTest is TestUtils {
             console.log("Loss percentage:", (loss * 10000) / initialAmount, "basis points");
         }
         
-        // Step 6: Additional verification - check if there are any fees collected
-        console.log("\n=== Final State Check ===");
-        console.log("VaquitaPool reward pool:", vaquita.rewardPool());
-        console.log("VaquitaPool protocol fees:", vaquita.protocolFees());
-        console.log("VaquitaPool total deposits:", vaquita.totalDeposits());
-        
         // Check if the position is now inactive
         (,,,,, bool isActive) = vaquita.getPosition(aliceDepositId);
         assertFalse(isActive, "Position should be inactive after withdrawal");
@@ -388,10 +398,9 @@ contract VaquitaPoolTest is TestUtils {
         // Charlie deposits
         uint256 charlieShares = deposit(charlie, charlieDepositId, initialAmount);
 
-        assertEq(aliceShares + bobShares + charlieShares, vaquita.totalShares(), "Total shares should be 3 * initialAmount");
-        
-        console.log("Total deposits of vaquita", vaquita.totalDeposits());
-        assertEq(vaquita.totalDeposits(), 3 * initialAmount, "Total deposits should be 3 * initialAmount");
+        (, uint256 totalDeposits, uint256 totalShares) = vaquita.periods(lockPeriod);
+        assertEq(aliceShares + bobShares + charlieShares, totalShares, "Total shares should be 3 * initialAmount");
+        assertEq(totalDeposits, 3 * initialAmount, "Total deposits should be 3 * initialAmount");
         
         // Whale makes multiple swaps to generate more fees
         for (uint i = 0; i < 3; i++) {
@@ -450,7 +459,7 @@ contract VaquitaPoolTest is TestUtils {
         vm.prank(alice);
         token.approve(address(vaquita), 1e6);
         vm.expectRevert();
-        vaquita.deposit(bytes16(keccak256("id1")), 1e6, block.timestamp + 1 days, "");
+        vaquita.deposit(bytes16(keccak256("id1")), 1e6, lockPeriod, block.timestamp + 1 days, "");
 
         // Withdraw should revert when paused
         vm.expectRevert();
@@ -459,7 +468,7 @@ contract VaquitaPoolTest is TestUtils {
         // addRewards should revert when paused
         vm.prank(owner);
         vm.expectRevert();
-        vaquita.addRewards(1e6);
+        vaquita.addRewards(lockPeriod, 1e6);
 
         // withdrawProtocolFees should revert when paused
         vm.prank(owner);
@@ -492,18 +501,6 @@ contract VaquitaPoolTest is TestUtils {
         vm.prank(owner);
         vm.expectRevert(VaquitaPool.InvalidFee.selector);
         vaquita.updateEarlyWithdrawalFee(10001);
-    }
-
-    function test_UpdateLockPeriod() public {
-        // Only owner can update
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-        vaquita.updateLockPeriod(2 days);
-
-        // Owner can update
-        vm.prank(owner);
-        vaquita.updateLockPeriod(2 days);
-        assertEq(vaquita.lockPeriod(), 2 days, "Lock period should be updated");
     }
 
     function test_WithdrawProtocolFees() public {

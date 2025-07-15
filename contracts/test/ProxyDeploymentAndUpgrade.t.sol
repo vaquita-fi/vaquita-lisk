@@ -65,11 +65,13 @@ contract ProxyDeploymentAndUpgradeTest is TestUtils {
 
     function test_VaquitaPoolProxyDeploymentAndUpgrade() public {
         VaquitaPool implementation = new VaquitaPool();
+        uint256[] memory lockPeriodsArr = new uint256[](1);
+        lockPeriodsArr[0] = lockPeriod;
         bytes memory initData = abi.encodeWithSelector(
             implementation.initialize.selector,
             tokenA,
             address(proxyLiquidityManager),
-            lockPeriod
+            lockPeriodsArr
         );
         TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
             address(implementation),
@@ -77,7 +79,7 @@ contract ProxyDeploymentAndUpgradeTest is TestUtils {
             initData
         );
         VaquitaPool proxied = VaquitaPool(address(proxy));
-        assertEq(proxied.lockPeriod(), lockPeriod, "Lock period should be set");
+        assertEq(proxied.lockPeriods(0), lockPeriod, "Lock period should be set");
 
         address proxyAdminAddress = _getProxyAdmin(address(proxy));
         ProxyAdmin proxyAdmin = ProxyAdmin(proxyAdminAddress);
@@ -88,9 +90,9 @@ contract ProxyDeploymentAndUpgradeTest is TestUtils {
             ""
         );
         assertEq(proxyAdmin.owner(), address(this), "ProxyAdmin owner should be test contract");
-        assertEq(proxied.lockPeriod(), lockPeriod, "Lock period should still be set after upgrade");
+        assertEq(proxied.lockPeriods(0), lockPeriod, "Lock period should still be set after upgrade");
         assertEq(address(proxied.token()), address(tokenA), "tokenA should be set");
         assertEq(address(proxied.liquidityManager()), address(proxyLiquidityManager), "liquidityManager should be set");
-        assertEq(proxied.lockPeriod(), lockPeriod, "lockPeriod should be set");
+        assertEq(proxied.lockPeriods(0), lockPeriod, "lockPeriod should be set");
     }
 }

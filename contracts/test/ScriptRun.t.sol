@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 import {ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {VelodromeLiquidityManagerProxyScript} from "../script/VelodromeLiquidityManagerProxy.s.sol";
-import {VaquitaPoolProxyScript} from "../script/VaquitaPoolProxy.s.sol";
+import {DeployVaquitaPoolProxyScript} from "../script/DeployVaquitaPoolLisk.s.sol";
 import {VelodromeLiquidityManagerScript} from "../script/VelodromeLiquidityManager.s.sol";
 import {VaquitaPoolScript} from "../script/VaquitaPool.s.sol";
 import {UpgradeVelodromeLiquidityManagerScript} from "../script/UpgradeVelodromeLiquidityManager.s.sol";
@@ -31,7 +31,7 @@ contract ScriptRunTest is TestUtils {
         VelodromeLiquidityManagerProxyScript velodromeLiquidityManagerProxyScript = new VelodromeLiquidityManagerProxyScript();
         address liquidityManager = velodromeLiquidityManagerProxyScript.run();
         assertNotEq(liquidityManager, address(0), "Liquidity manager should be deployed");
-        VaquitaPoolProxyScript vaquitaPoolProxyScript = new VaquitaPoolProxyScript();
+        DeployVaquitaPoolProxyScript vaquitaPoolProxyScript = new DeployVaquitaPoolProxyScript();
         address vaquitaPool = vaquitaPoolProxyScript.run(liquidityManager);
         assertNotEq(vaquitaPool, address(0), "Vaquita pool should be deployed");
     }
@@ -58,11 +58,8 @@ contract ScriptRunTest is TestUtils {
         VelodromeLiquidityManagerScript velodromeLiquidityManagerScript = new VelodromeLiquidityManagerScript();
         address newLiquidityManager = velodromeLiquidityManagerScript.run();
         address proxyAdminAddress = _getProxyAdmin(address(liquidityManager));
-        ProxyAdmin proxyAdmin = ProxyAdmin(proxyAdminAddress);
 
         // Run the upgrade with the admin private key and address
-        uint256 adminPrivateKey = vm.envUint("PRIVATE_KEY");
-        address admin = vm.addr(adminPrivateKey);
         upgradeVelodromeLiquidityManagerScript.run(proxyAdminAddress, address(liquidityManager), address(newLiquidityManager));
         address upgradedLiquidityManager = upgradeVelodromeLiquidityManagerScript.run(proxyAdminAddress, address(liquidityManager), address(newLiquidityManager));
         assertNotEq(upgradedLiquidityManager, address(0), "Liquidity manager should be deployed");
@@ -73,7 +70,7 @@ contract ScriptRunTest is TestUtils {
         address liquidityManager = velodromeLiquidityManagerProxyScript.run();
         assertNotEq(liquidityManager, address(0), "Liquidity manager should be deployed");
 
-        VaquitaPoolProxyScript vaquitaPoolProxyScript = new VaquitaPoolProxyScript();
+        DeployVaquitaPoolProxyScript vaquitaPoolProxyScript = new DeployVaquitaPoolProxyScript();
         address vaquitaPool = vaquitaPoolProxyScript.run(liquidityManager);
         assertNotEq(vaquitaPool, address(0), "Vaquita pool should be deployed");
 
@@ -84,7 +81,6 @@ contract ScriptRunTest is TestUtils {
         UpgradeVaquitaPoolScript upgradeVaquitaPoolScript = new UpgradeVaquitaPoolScript();
 
         address proxyAdminAddress = _getProxyAdmin(address(vaquitaPool));
-        ProxyAdmin proxyAdmin = ProxyAdmin(proxyAdminAddress);
 
         // Run the upgrade with the admin private key and address
         address upgradedVaquitaPool = upgradeVaquitaPoolScript.run(proxyAdminAddress, address(vaquitaPool), address(newVaquitaPool));

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.25;
+pragma solidity 0.8.30;
 
 import {IUniversalRouter} from "./interfaces/external/IUniversalRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -13,6 +13,8 @@ import {
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 struct Deposit {
     bytes16 id;
@@ -23,14 +25,15 @@ struct Deposit {
     uint256 amount1Used;
     uint256 amount0Remaining;
     uint256 amount1Remaining;
+    bool isActive;
 }
 
-contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, PausableUpgradeable {
+contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable {
     address public tokenA;
     address public tokenB;
     IUniversalRouter public universalRouter;
     INonfungiblePositionManager public nonfungiblePositionManager;
-    uint256 public v3SwapExactIn;
+    uint8 public v3SwapExactIn;
     int24 public tickSpacing;
     int24 public tickLower;
     int24 public tickUpper;
@@ -46,6 +49,9 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
     event FundsDeposited(address indexed user, bytes16 indexed depositId, uint256 amountA, uint256 amountB, uint256 shares);
     /// @notice Emitted when a user withdraws
     event FundsWithdrawn(address indexed user, bytes16 indexed depositId, uint256 amountA);
+
+    // Errors
+    error InvalidAddress();
 
     /**
      * @notice Contract constructor
@@ -63,13 +69,15 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
         address _tokenB,
         address _universalRouter,
         address _nonfungiblePositionManager,
-        uint256 _v3SwapExactIn,
+        uint8 _v3SwapExactIn,
         int24 _tickSpacing,
         int24 _tickLower,
         int24 _tickUpper
-    ) public initializer {
+    ) external initializer {
         __Ownable_init(msg.sender);
         __Pausable_init();
+        __ReentrancyGuard_init();
+        if (_tokenA == address(0) || _tokenB == address(0) || _universalRouter == address(0) || _nonfungiblePositionManager == address(0)) revert InvalidAddress();
         tokenA = _tokenA;
         tokenB = _tokenB;
         v3SwapExactIn = _v3SwapExactIn;
@@ -90,22 +98,6 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
 
     function unpause() external onlyOwner {
         _unpause();
-    }
-
-    /**
-     * @notice Internal helper to remove a depositId from a user's array
-     * @param user The user address
-     * @param depositId The deposit ID to remove
-     */
-    function _removeUserDepositId(address user, bytes16 depositId) private {
-        bytes16[] storage ids = userDepositIds[user];
-        for (uint i = 0; i < ids.length; i++) {
-            if (ids[i] == depositId) {
-                ids[i] = ids[ids.length - 1];
-                ids.pop();
-                break;
-            }
-        }
     }
 
     /**
@@ -136,8 +128,8 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
         CollectParams memory collectParams = CollectParams({
             tokenId: positionTokenId,
             recipient: address(this), // Collect to this contract first
-            amount0Max: uint128(amount0),
-            amount1Max: uint128(amount1)
+            amount0Max: SafeCast.toUint128(amount0),
+            amount1Max: SafeCast.toUint128(amount1)
         });
         (collectedAmount0, collectedAmount1) = nonfungiblePositionManager.collect(collectParams);
     }
@@ -151,7 +143,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
     function swap(address fromToken, address toToken, uint256 amountIn) internal {
         // No need to approve here due to approve-once pattern
         uint256 amountOutMin = 0;
-        bytes memory commands = abi.encodePacked(bytes1(uint8(v3SwapExactIn)));
+        bytes memory commands = abi.encodePacked(bytes1(v3SwapExactIn));
         bytes memory path = abi.encodePacked(fromToken, tickSpacing, toToken);
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(address(this), amountIn, amountOutMin, path, true);
@@ -160,12 +152,12 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
 
     /**
      * @notice Deposit tokenA, swap half for tokenB, and add liquidity
-     * @param _depositId The unique deposit ID
+     * @param depositId The unique deposit ID
      * @param amount The amount of tokenA to deposit
      */
-    function deposit(bytes16 _depositId, uint256 amount) public whenNotPaused returns (uint256) {
-        require(_depositId != 0, "Deposit ID cannot be zero");
-        require(userDepositDetails[msg.sender][_depositId].shares == 0, "Deposit ID already exists for user");
+    function deposit(bytes16 depositId, uint256 amount) external nonReentrant whenNotPaused returns (uint256) {
+        require(depositId != 0, "Deposit ID cannot be zero");
+        require(userDepositDetails[msg.sender][depositId].shares == 0, "Deposit ID already exists for user");
         require(amount > 0, "Deposit amount must be greater than 0");
         IERC20(tokenA).transferFrom(msg.sender, address(this), amount);
 
@@ -175,8 +167,8 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
         uint256 balanceBAfter = IERC20(tokenB).balanceOf(address(this));
         uint256 amountB = balanceBAfter - balanceBBefore;
 
-        uint256 sharesToMint = addLiquidity(amount - swapAmount, amountB, msg.sender, _depositId);
-        emit FundsDeposited(msg.sender, _depositId, amount - swapAmount, amountB, sharesToMint);
+        uint256 sharesToMint = _addLiquidity(amount - swapAmount, amountB, msg.sender, depositId);
+        emit FundsDeposited(msg.sender, depositId, amount - swapAmount, amountB, sharesToMint);
         return sharesToMint;
     }
 
@@ -187,7 +179,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      * @param depositor The user address
      * @param depositId The deposit ID
      */
-    function addLiquidity(uint256 amountA, uint256 amountB, address depositor, bytes16 depositId) internal returns (uint256) {
+    function _addLiquidity(uint256 amountA, uint256 amountB, address depositor, bytes16 depositId) internal returns (uint256) {
         // No need to approve here due to approve-once pattern
         uint256 sharesToMint;
         uint256 amount0Used;
@@ -218,7 +210,6 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
         } else {
             // add liquidity to an existing position
             (, , , , , , , uint128 totalLiquidity, , , , ) = nonfungiblePositionManager.positions(positionTokenId);
-            // require(totalLiquidity > 0, "Cannot add to empty position");
 
             IncreaseLiquidityParams memory params = IncreaseLiquidityParams({
                 tokenId: positionTokenId,
@@ -244,7 +235,8 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
             amount0Used: amount0Used,
             amount1Used: amount1Used,
             amount0Remaining: amountB - amount0Used,
-            amount1Remaining: amountA - amount1Used
+            amount1Remaining: amountA - amount1Used,
+            isActive: true
         });
         userDepositIds[depositor].push(depositId);
         emit FundsDeposited(depositor, depositId, amountA, amountB, sharesToMint);
@@ -255,20 +247,18 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      * @notice Withdraw a user's deposit, remove liquidity, swap back to tokenA, and transfer to user
      * @param depositId The deposit ID to withdraw
      */
-    function withdraw(bytes16 depositId) public whenNotPaused returns (uint256) {
+    function withdraw(bytes16 depositId) external nonReentrant whenNotPaused returns (uint256) {
         Deposit storage depositToWithdraw = userDepositDetails[msg.sender][depositId];
         uint256 shares = depositToWithdraw.shares;
-        require(shares > 0, "Deposit not found or already withdrawn for user");
+        require(depositToWithdraw.isActive, "Deposit is not active");
         require(depositToWithdraw.id == depositId, "Only deposit owner can withdraw");
+
+        depositToWithdraw.isActive = false;
 
         (uint256 collectedAmount0, uint256 collectedAmount1, ) = _decreaseAndCollectLiquidity(shares);
 
-        _removeUserDepositId(msg.sender, depositId);
-
         uint256 finalTokenAAmount = collectedAmount1 + depositToWithdraw.amount1Remaining;
         uint256 finalTokenBAmount = collectedAmount0 + depositToWithdraw.amount0Remaining;
-
-        delete userDepositDetails[msg.sender][depositId];
 
         if (finalTokenBAmount > 0) {
             uint256 tokenABalanceBeforeSwap = IERC20(tokenA).balanceOf(address(this));
@@ -291,7 +281,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      * @param depositId The deposit ID
      * @return The Deposit struct
      */
-    function getUserDeposit(address user, bytes16 depositId) public view returns (Deposit memory) {
+    function getUserDeposit(address user, bytes16 depositId) external view returns (Deposit memory) {
         return userDepositDetails[user][depositId];
     }
 
@@ -300,7 +290,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      * @param user The user address
      * @return Array of deposit IDs
      */
-    function getUserDepositIds(address user) public view returns (bytes16[] memory) {
+    function getUserDepositIds(address user) external view returns (bytes16[] memory) {
         return userDepositIds[user];
     }
 }
