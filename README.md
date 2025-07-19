@@ -19,18 +19,19 @@ The Save to Earn model incentivizes users to maintain their deposits over time, 
 - **Upgradeable & Modular**: All core contracts are upgradeable using OpenZeppelin's upgradeable contracts, allowing for future enhancements and security patches without redeployment.
 
 ### Key Features
-- **Single-Token Deposits**: Users deposit LSK tokens, automatically converted to optimal liquidity positions
+- **Single-Token Deposits**: Users deposit USDC.e tokens, automatically converted to optimal liquidity positions
 - **Concentrated Liquidity**: Leverages Velodrome's advanced liquidity management for maximum efficiency
 - **Reward Distribution**: Earn rewards based on deposit duration and amount
 - **Flexible Withdrawals**: Users can withdraw their deposits and accumulated rewards at any time
 - **Gas Optimization**: Efficient smart contracts designed for cost-effective operations
 - **Pausable**: Both VaquitaPool and VelodromeLiquidityManager can be paused by the owner for emergency response
 - **Upgradeable**: Proxy pattern allows seamless upgrades and maintenance
+- **EIP-2612 Permit Support**: Gasless approvals for better user experience
 
 ## 💰 Economic Model
 
 ### Save to Earn Mechanics
-1. **Deposit Phase**: Users deposit LSK tokens into the protocol
+1. **Deposit Phase**: Users deposit USDC.e tokens into the protocol
 2. **Liquidity Provision**: Tokens are automatically deployed to Velodrome concentrated liquidity pools
 3. **Reward Accumulation**: Users earn rewards based on:
    - Deposit amount
@@ -54,13 +55,22 @@ The Save to Earn model incentivizes users to maintain their deposits over time, 
 - **Gas Efficient**: Optimized for cost-effective operations on Lisk
 - **Upgradeable Proxy Pattern**: All main contracts use OpenZeppelin's TransparentUpgradeableProxy for safe upgrades
 - **Pausable**: Emergency stop mechanism for both core contracts
+- **EIP-2612 Permit**: Support for gasless token approvals
 
 ### Integration Points
 - **Velodrome Protocol**: Direct integration with concentrated liquidity pools
 - **Universal Router**: Seamless token swaps and routing
 - **Position Management**: Automated handling of complex liquidity positions
+- **USDC.e/USDT Pool**: Primary liquidity pair for the protocol
 
-## 🧪 Testing & Coverage
+### Contract Configuration
+- **Token**: USDC.e (0xF242275d3a6527d877f2c927a82D9b057609cc71)
+- **Liquidity Pair**: USDC.e/USDT concentrated liquidity
+- **Lock Periods**: Configurable lock periods (default: 1 week)
+- **Early Withdrawal Fee**: Configurable fee for early withdrawals (initially 0%)
+- **Protocol Fees**: Automated fee collection for protocol sustainability
+
+## �� Testing & Coverage
 
 - **Comprehensive Solidity Tests**: All core logic is covered by Solidity-based tests using Foundry, including deposit/withdrawal flows, pausing, upgrades, and edge cases.
 - **Upgradeable & Proxy Tests**: Deployment, initialization, and upgrade flows are thoroughly tested to ensure safe upgradability.
@@ -69,13 +79,14 @@ The Save to Earn model incentivizes users to maintain their deposits over time, 
 - **Test Utilities**: Reusable helpers for mocking, UUID generation, and fee simulation.
 - **Audit-Ready**: Codebase follows best practices for upgradeable contracts, access control, and error handling.
 
-## 🚀 Benefits for Users
+## �� Benefits for Users
 
 ### For Savers
 - **Passive Income**: Earn rewards simply by saving
 - **Liquidity Access**: Maintain access to funds while earning
 - **Risk Management**: Diversified exposure through professional liquidity management
 - **Transparency**: Full visibility into deposit status and rewards
+- **Gas Efficiency**: EIP-2612 permit support for cost-effective transactions
 
 ### For the Ecosystem
 - **Increased Liquidity**: More liquid markets for Lisk tokens
@@ -99,13 +110,14 @@ The Save to Earn model incentivizes users to maintain their deposits over time, 
 - Creating additional reward mechanisms
 - Developing complementary DeFi products
 
-## 🛡️ Security & Audit
+## ��️ Security & Audit
 - **OpenZeppelin Upgradeable Contracts**: All upgradeable logic uses industry-standard libraries.
 - **Pausable & Ownable**: Emergency stop and admin controls for all critical contracts.
 - **Custom Errors & Events**: Gas-efficient error handling and full event logging for transparency.
+- **Reentrancy Protection**: All external calls are protected against reentrancy attacks.
 - **Audit-Ready**: Codebase is structured and documented for third-party security review.
 
-## 🧪 How to Run Tests & Generate Coverage
+## �� How to Run Tests & Generate Coverage
 
 1. **Run all tests:**
    ```sh
@@ -119,6 +131,14 @@ The Save to Earn model incentivizes users to maintain their deposits over time, 
    ```sh
    ./generate-report.sh
    ```
+
+## 📋 Contract Verification
+
+The contracts can be verified on Blockscout using the following command:
+
+```bash
+forge verify-contract <CONTRACT_ADDRESS> lib/openzeppelin-contracts/contracts/proxy/transparent/TransparentUpgradeableProxy.sol:TransparentUpgradeableProxy --constructor-args $(cast abi-encode "constructor(address,address,bytes)" <IMPLEMENTATION_ADDRESS> <ADMIN_ADDRESS> <INIT_DATA>) --verifier blockscout --verifier-url https://blockscout.lisk.com/api --chain-id 1135 --etherscan-api-key <API_KEY>
+```
 
 ---
 
