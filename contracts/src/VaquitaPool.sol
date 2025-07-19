@@ -86,12 +86,6 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
         if (_token == address(0) || _liquidityManager == address(0)) revert InvalidAddress();
         token = IERC20(_token);
         liquidityManager = IVelodromeLiquidityManager(_liquidityManager);
-        uint256 length = _lockPeriods.length;
-        // uint256[] memory newLockPeriods = new uint256[](length);
-        // for (uint256 i = 0; i < length; i++) {
-        //     newLockPeriods[i] = _lockPeriods[i];
-        // }
-        // lockPeriods = newLockPeriods;
         lockPeriods = _lockPeriods;
         token.approve(address(liquidityManager), type(uint256).max);
     }
@@ -121,7 +115,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @param deadline The deadline for the permit signature
      * @param signature The permit signature for token approval
      */
-    function deposit(bytes16 depositId, uint256 amount, uint256 period, uint256 deadline, bytes memory signature) external nonReentrant whenNotPaused returns (uint256) {
+    function deposit(bytes16 depositId, uint256 amount, uint256 period, uint256 deadline, bytes memory signature) external nonReentrant whenNotPaused returns (uint256 sharesToMint) {
         if (amount == 0) revert InvalidAmount();
         if (depositId == bytes16(0)) revert InvalidDepositId();
         if (positions[depositId].id != bytes16(0)) revert DepositAlreadyExists();
@@ -149,7 +143,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
         token.safeTransferFrom(msg.sender, address(this), amount);
 
         // Supply to Velodrome
-        uint256 sharesToMint = _supplyToVelodrome(depositId, amount);
+        sharesToMint = _supplyToVelodrome(depositId, amount);
         
         // AUDIT NOTE: This state change after external call is safe because:
         // 1. nonReentrant modifier prevents reentrancy
@@ -160,7 +154,6 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
         periods[period].totalShares += sharesToMint;
 
         emit FundsDeposited(depositId, msg.sender, amount, sharesToMint);
-        return sharesToMint;
     }
 
     /**
@@ -168,7 +161,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @dev Only the position owner can withdraw. Handles early withdrawal fees and reward distribution.
      * @param depositId The ID of the position to withdraw from
      */
-    function withdraw(bytes16 depositId) external nonReentrant whenNotPaused returns (uint256) {
+    function withdraw(bytes16 depositId) external nonReentrant whenNotPaused returns (uint256 amountToTransfer) {
         Position storage position = positions[depositId];
         if (position.id == bytes16(0)) revert PositionNotFound();
         if (!position.isActive) revert PositionAlreadyWithdrawn();
@@ -183,7 +176,6 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
         uint256 interest = withdrawnAmount > position.amount ? withdrawnAmount - position.amount : 0;
 
         uint256 reward = 0;
-        uint256 amountToTransfer = 0;
         if (block.timestamp < position.finalizationTime) {
             // Early withdrawal - calculate fee and add remaining interest to reward pool
             uint256 feeAmount = (interest * earlyWithdrawalFee) / BASIS_POINTS;
@@ -209,7 +201,6 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
         }
 
         emit FundsWithdrawn(depositId, msg.sender, position.amount, reward);
-        return amountToTransfer;
     }
 
     /**
