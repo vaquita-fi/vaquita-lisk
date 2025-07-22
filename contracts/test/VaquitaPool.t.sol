@@ -10,6 +10,7 @@ import {IVelodromeLiquidityManager} from "../src/interfaces/IVelodromeLiquidityM
 import {VelodromeLiquidityManager} from "../src/VelodromeLiquidityManager.sol";
 import {IPermit} from "../src/interfaces/IPermit.sol";
 import {IUniversalRouter} from "../src/interfaces/external/IUniversalRouter.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {TestUtils} from "./TestUtils.sol";
 
 contract VaquitaPoolTest is TestUtils {
@@ -56,8 +57,11 @@ contract VaquitaPoolTest is TestUtils {
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
         (charlie, charliePrivateKey) = makeAddrAndKey("charlie");
         owner = address(this);
-        liquidityManager = new VelodromeLiquidityManager();
-        liquidityManager.initialize(
+        
+        // Deploy liquidity manager implementation and proxy
+        VelodromeLiquidityManager liquidityManagerImpl = new VelodromeLiquidityManager();
+        bytes memory liquidityManagerInitData = abi.encodeWithSelector(
+            liquidityManagerImpl.initialize.selector,
             address(token),
             address(lpPairToken),
             address(universalRouter),
@@ -67,10 +71,30 @@ contract VaquitaPoolTest is TestUtils {
             tickLower,
             tickUpper
         );
-        vaquita = new VaquitaPool();
+        TransparentUpgradeableProxy liquidityManagerProxy = new TransparentUpgradeableProxy(
+            address(liquidityManagerImpl),
+            owner,
+            liquidityManagerInitData
+        );
+        liquidityManager = VelodromeLiquidityManager(address(liquidityManagerProxy));
+        
+        // Deploy VaquitaPool implementation and proxy
+        VaquitaPool vaquitaImpl = new VaquitaPool();
         uint256[] memory lockPeriods = new uint256[](1);
         lockPeriods[0] = lockPeriod;
-        vaquita.initialize(address(token), address(liquidityManager), lockPeriods);
+        bytes memory vaquitaInitData = abi.encodeWithSelector(
+            vaquitaImpl.initialize.selector,
+            address(token),
+            address(liquidityManager),
+            lockPeriods
+        );
+        TransparentUpgradeableProxy vaquitaProxy = new TransparentUpgradeableProxy(
+            address(vaquitaImpl),
+            owner,
+            vaquitaInitData
+        );
+        vaquita = VaquitaPool(address(vaquitaProxy));
+        
         // Fund users with USDC from whale
         vm.startPrank(whale);
         token.transfer(alice, initialAmount);

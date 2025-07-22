@@ -67,6 +67,11 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     error InvalidFee();
     error InvalidDepositId();
     error DepositAlreadyExists();
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
     
     /**
      * @notice Initializes the contract with the token, liquidity manager, and supported lock periods.
