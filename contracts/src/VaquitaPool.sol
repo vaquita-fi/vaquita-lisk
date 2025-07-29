@@ -65,6 +65,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     error NotPositionOwner();
     error InvalidAddress();
     error InvalidFee();
+    error PeriodNotSupported();
     error InvalidDepositId();
     error DepositAlreadyExists();
 
@@ -124,7 +125,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
         if (amount == 0) revert InvalidAmount();
         if (depositId == bytes16(0)) revert InvalidDepositId();
         if (positions[depositId].id != bytes16(0)) revert DepositAlreadyExists();
-        if (!isSupportedLockPeriod(period)) revert InvalidFee();
+        if (!isSupportedLockPeriod(period)) revert PeriodNotSupported();
 
         // Create position
         Position storage position = positions[depositId];
@@ -286,7 +287,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @param rewardAmount The amount of rewards to add
      */
     function addRewards(uint256 period, uint256 rewardAmount) external onlyOwner whenNotPaused {
-        if (!isSupportedLockPeriod(period)) revert InvalidFee();
+        if (!isSupportedLockPeriod(period)) revert PeriodNotSupported();
         token.safeTransferFrom(msg.sender, address(this), rewardAmount);
         periods[period].rewardPool += rewardAmount;
         emit RewardsAdded(rewardAmount);
