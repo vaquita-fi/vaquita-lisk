@@ -17,7 +17,7 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 struct Deposit {
-    bytes16 id;
+    bytes32 id;
     uint256 shares;
     uint256 amount0Contributed;
     uint256 amount1Contributed;
@@ -42,13 +42,13 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
     uint256 public totalShares;
 
     // Track each deposit for every user
-    mapping(address => mapping(bytes16 => Deposit)) public userDepositDetails;
-    mapping(address => bytes16[]) public userDepositIds;
+    mapping(address => mapping(bytes32 => Deposit)) public userDepositDetails;
+    mapping(address => bytes32[]) public userDepositIds;
 
     /// @notice Emitted when a user makes a deposit
-    event FundsDeposited(address indexed user, bytes16 indexed depositId, uint256 amountA, uint256 amountB, uint256 shares);
+    event FundsDeposited(address indexed user, bytes32 indexed depositId, uint256 amountA, uint256 amountB, uint256 shares);
     /// @notice Emitted when a user withdraws
-    event FundsWithdrawn(address indexed user, bytes16 indexed depositId, uint256 amountA);
+    event FundsWithdrawn(address indexed user, bytes32 indexed depositId, uint256 amountA);
 
     // Errors
     error InvalidAddress();
@@ -155,7 +155,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      * @param depositId The unique deposit ID
      * @param amount The amount of tokenA to deposit
      */
-    function deposit(bytes16 depositId, uint256 amount) external nonReentrant whenNotPaused returns (uint256) {
+    function deposit(bytes32 depositId, uint256 amount) external nonReentrant whenNotPaused returns (uint256) {
         require(depositId != 0, "Deposit ID cannot be zero");
         require(userDepositDetails[msg.sender][depositId].shares == 0, "Deposit ID already exists for user");
         require(amount > 0, "Deposit amount must be greater than 0");
@@ -179,7 +179,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      * @param depositor The user address
      * @param depositId The deposit ID
      */
-    function _addLiquidity(uint256 amountA, uint256 amountB, address depositor, bytes16 depositId) internal returns (uint256) {
+    function _addLiquidity(uint256 amountA, uint256 amountB, address depositor, bytes32 depositId) internal returns (uint256) {
         // No need to approve here due to approve-once pattern
         uint256 sharesToMint;
         uint256 amount0Used;
@@ -247,7 +247,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      * @notice Withdraw a user's deposit, remove liquidity, swap back to tokenA, and transfer to user
      * @param depositId The deposit ID to withdraw
      */
-    function withdraw(bytes16 depositId) external nonReentrant whenNotPaused returns (uint256) {
+    function withdraw(bytes32 depositId) external nonReentrant whenNotPaused returns (uint256) {
         Deposit storage depositToWithdraw = userDepositDetails[msg.sender][depositId];
         uint256 shares = depositToWithdraw.shares;
         require(depositToWithdraw.isActive, "Deposit is not active");
@@ -281,7 +281,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      * @param depositId The deposit ID
      * @return The Deposit struct
      */
-    function getUserDeposit(address user, bytes16 depositId) external view returns (Deposit memory) {
+    function getUserDeposit(address user, bytes32 depositId) external view returns (Deposit memory) {
         return userDepositDetails[user][depositId];
     }
 
@@ -290,7 +290,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      * @param user The user address
      * @return Array of deposit IDs
      */
-    function getUserDepositIds(address user) external view returns (bytes16[] memory) {
+    function getUserDepositIds(address user) external view returns (bytes32[] memory) {
         return userDepositIds[user];
     }
 }
