@@ -19,7 +19,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
 
     // Position struct to store user position information
     struct Position {
-        bytes16 id;
+        bytes32 id;
         address owner;
         uint256 amount;
         uint256 shares;
@@ -47,12 +47,13 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     mapping(address => mapping(uint256 => uint256)) public userTotalDepositsPerLockPeriod; // user => lockPeriod => total deposits
     
     // Mappings
-    mapping(bytes16 => Position) public positions;
+    mapping(address => uint256) public depositNonces;
+    mapping(bytes32 => Position) public positions;
 
     // Events
-    event FundsDeposited(bytes16 indexed depositId, address indexed owner, uint256 amount, uint256 shares);
-    event FundsWithdrawn(bytes16 indexed depositId, address indexed owner, uint256 amount, uint256 reward);
-    event RewardDistributed(bytes16 indexed depositId, address indexed owner, uint256 reward);
+    event FundsDeposited(bytes32 indexed depositId, address indexed owner, uint256 amount, uint256 shares);
+    event FundsWithdrawn(bytes32 indexed depositId, address indexed owner, uint256 amount, uint256 reward);
+    event RewardDistributed(bytes32 indexed depositId, address indexed owner, uint256 reward);
     event LockPeriodAdded(uint256 newLockPeriod);
     event EarlyWithdrawalFeeUpdated(uint256 newFee);
     event RewardsAdded(uint256 rewardAmount);
@@ -114,16 +115,14 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     /**
      * @notice Open a new position in the pool
      * @dev Allows a user to deposit tokens, which are supplied to the VelodromeLiquidityManager. Position is tracked by a unique depositId.
-     * @param depositId The unique identifier for the position
      * @param amount The amount of tokens to deposit
      * @param period The lock period chosen for this deposit
      * @param deadline The deadline for the permit signature
      * @param signature The permit signature for token approval
      */
-    function deposit(bytes16 depositId, uint256 amount, uint256 period, uint256 deadline, bytes memory signature) external nonReentrant whenNotPaused returns (uint256 sharesToMint) {
+    function deposit(uint256 amount, uint256 period, uint256 deadline, bytes memory signature) external nonReentrant whenNotPaused returns (uint256 sharesToMint) {
+        bytes32 depositId = keccak256(abi.encodePacked(msg.sender, depositNonces[msg.sender]++));
         if (amount == 0) revert InvalidAmount();
-        if (depositId == bytes16(0)) revert InvalidDepositId();
-        if (positions[depositId].id != bytes16(0)) revert DepositAlreadyExists();
         if (!isSupportedLockPeriod(period)) revert InvalidFee();
 
         // Create position
@@ -166,9 +165,9 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @dev Only the position owner can withdraw. Handles early withdrawal fees and reward distribution.
      * @param depositId The ID of the position to withdraw from
      */
-    function withdraw(bytes16 depositId) external nonReentrant whenNotPaused returns (uint256 amountToTransfer) {
+    function withdraw(bytes32 depositId) external nonReentrant whenNotPaused returns (uint256 amountToTransfer) {
         Position storage position = positions[depositId];
-        if (position.id == bytes16(0)) revert PositionNotFound();
+        if (position.id == bytes32(0)) revert PositionNotFound();
         if (!position.isActive) revert PositionAlreadyWithdrawn();
         if (position.owner != msg.sender) revert NotPositionOwner();
 
@@ -215,7 +214,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @param amount The amount of tokens to supply.
      * @return sharesToMint The number of shares minted.
      */
-    function _supplyToVelodrome(bytes16 depositId, uint256 amount) internal returns (uint256 sharesToMint) {
+    function _supplyToVelodrome(bytes32 depositId, uint256 amount) internal returns (uint256 sharesToMint) {
         sharesToMint = liquidityManager.deposit(depositId, amount);
     }
 
@@ -225,7 +224,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @param depositId The unique identifier for the position.
      * @return withdrawnAmount The amount of tokens withdrawn.
      */
-    function _withdrawFromVelodrome(bytes16 depositId) internal returns (uint256 withdrawnAmount) {
+    function _withdrawFromVelodrome(bytes32 depositId) internal returns (uint256 withdrawnAmount) {
         withdrawnAmount = liquidityManager.withdraw(depositId);
     }
 
@@ -239,7 +238,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @return finalizationTime The finalization time
      * @return positionIsActive Whether the position is active
      */
-    function getPosition(bytes16 depositId) external view returns (
+    function getPosition(bytes32 depositId) external view returns (
         address positionOwner,
         uint256 positionAmount,
         uint256 shares,
