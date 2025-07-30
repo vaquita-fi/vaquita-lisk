@@ -52,11 +52,9 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     // Events
     event FundsDeposited(bytes16 indexed depositId, address indexed owner, uint256 amount, uint256 shares);
     event FundsWithdrawn(bytes16 indexed depositId, address indexed owner, uint256 amount, uint256 reward);
-    event RewardDistributed(bytes16 indexed depositId, address indexed owner, uint256 reward);
     event LockPeriodAdded(uint256 newLockPeriod);
     event EarlyWithdrawalFeeUpdated(uint256 newFee);
     event RewardsAdded(uint256 rewardAmount);
-    event ProtocolFeesUpdated(uint256 newProtocolFees);
     event ProtocolFeesWithdrawn(uint256 protocolFees);
     // Errors
     error InvalidAmount();
