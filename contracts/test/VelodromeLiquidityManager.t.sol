@@ -12,8 +12,8 @@ import {TestUtils} from "./TestUtils.sol";
 
 contract VelodromeLiquidityManagerTest is Test, TestUtils {
     VelodromeLiquidityManager public liquidityManager;
-    IERC20 public tokenA;
-    IERC20 public tokenB;
+    IERC20 public token0;
+    IERC20 public token1;
     address public universalRouter;
     address public positionManager;
     address public whale;
@@ -25,11 +25,11 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
     address public dave;
 
     // Real Lisk mainnet addresses from VelodromeLiquidityManager.s.sol
-    address constant TOKEN_A_ADDRESS = 0xF242275d3a6527d877f2c927a82D9b057609cc71;
-    address constant TOKEN_B_ADDRESS = 0x05D032ac25d322df992303dCa074EE7392C117b9;
+    address constant TOKEN_0_ADDRESS = 0x05D032ac25d322df992303dCa074EE7392C117b9;
+    address constant TOKEN_1_ADDRESS = 0xF242275d3a6527d877f2c927a82D9b057609cc71;
     address constant UNIVERSAL_ROUTER_ADDRESS = 0x652e53C6a4FE39B6B30426d9c96376a105C89A95;
     address constant POSITION_MANAGER_ADDRESS = 0x991d5546C4B442B4c5fdc4c8B8b8d131DEB24702;
-    address constant TOKEN_A_WHALE = 0xC859c755E8C0568fD86F7860Bcf9A59D6F57BEB5;
+    address constant TOKEN_1_WHALE = 0xC859c755E8C0568fD86F7860Bcf9A59D6F57BEB5;
 
     uint8 public v3SwapExactIn = 0x00;
     int24 public tickSpacing = 1;
@@ -43,11 +43,11 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         vm.createSelectFork(vm.rpcUrl("lisk"), liskForkBlock);
 
         // Assign real contract addresses
-        tokenA = IERC20(TOKEN_A_ADDRESS);
-        tokenB = IERC20(TOKEN_B_ADDRESS);
+        token0 = IERC20(TOKEN_0_ADDRESS);
+        token1 = IERC20(TOKEN_1_ADDRESS);
         universalRouter = UNIVERSAL_ROUTER_ADDRESS;
         positionManager = POSITION_MANAGER_ADDRESS;
-        whale = TOKEN_A_WHALE;
+        whale = TOKEN_1_WHALE;
         owner = address(this);
 
         // Create test users
@@ -55,21 +55,21 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         bob = address(0xB0B);
         charlie = makeAddr("charlie");
         dave = makeAddr("dave");
-        // Impersonate whale and transfer TokenA to alice and bob
+        // Impersonate whale and transfer token1 to alice and bob
         uint256 transferAmount = 100_000 * 1e6; // Adjust decimals as needed
         uint256 transferAmount2 = 1_000 * 1e6;
         vm.startPrank(whale);
-        tokenA.transfer(alice, transferAmount);
-        tokenA.transfer(bob, transferAmount);
-        tokenA.transfer(charlie, transferAmount2);
-        tokenA.transfer(dave, transferAmount2);
+        token1.transfer(alice, transferAmount);
+        token1.transfer(bob, transferAmount);
+        token1.transfer(charlie, transferAmount2);
+        token1.transfer(dave, transferAmount2);
         vm.stopPrank();
 
         // Deploy VelodromeLiquidityManager with real addresses and parameters
         liquidityManager = new VelodromeLiquidityManager();
         liquidityManager.initialize(
-            address(tokenA),
-            address(tokenB),
+            address(token0),
+            address(token1),
             universalRouter,
             positionManager,
             v3SwapExactIn,
@@ -85,8 +85,8 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         uint256 depositAmount
     ) public returns (uint256) {
         vm.startPrank(user);
-        tokenA.approve(address(liquidityManager), depositAmount);
-        liquidityManager.deposit(depositId, depositAmount);
+        token1.approve(address(liquidityManager), depositAmount);
+        liquidityManager.deposit(depositId, address(token1), depositAmount);
         vm.stopPrank();
         return 0;
     }
@@ -96,7 +96,7 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         bytes16 depositId
     ) public returns (uint256) {
         vm.startPrank(user);
-        liquidityManager.withdraw(depositId);
+        liquidityManager.withdraw(depositId, address(token1));
         vm.stopPrank();
         return 0;
     }
@@ -116,24 +116,24 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         assertGt(dep.amount0Contributed + dep.amount1Contributed, 0, "Amounts should be > 0");
     }
 
-    function test_WithdrawReturnsTokenAAndDepositIsInactive() public {
+    function test_WithdrawReturnsToken1AndDepositIsInactive() public {
         // Arrange
         uint256 depositAmount = 10 * 1e6; // Adjust decimals as needed
         bytes16 depositId = bytes16(keccak256(abi.encodePacked("testWithdraw", block.timestamp)));
         deposit(alice, depositId, depositAmount);
-        uint256 balanceBefore = tokenA.balanceOf(alice);
+        uint256 balanceBefore = token1.balanceOf(alice);
 
         // Act
         withdraw(alice, depositId);
 
         // Assert
-        uint256 balanceAfter = tokenA.balanceOf(alice);
-        assertGt(balanceAfter, balanceBefore, "Should receive TokenA back");
+        uint256 balanceAfter = token1.balanceOf(alice);
+        assertGt(balanceAfter, balanceBefore, "Should receive token1 back");
         Deposit memory dep = liquidityManager.getUserDeposit(alice, depositId);
         assertEq(dep.isActive, false, "Deposit should be inactive");
         // contract address should have no tokens
-        assertEq(tokenA.balanceOf(address(liquidityManager)), 0, "TokenA balance should be 0");
-        assertEq(tokenB.balanceOf(address(liquidityManager)), 0, "TokenB balance should be 0");
+        assertEq(token0.balanceOf(address(liquidityManager)), 0, "token0 balance should be 0");
+        assertEq(token1.balanceOf(address(liquidityManager)), 0, "token1 balance should be 0");
     }
 
     function test_TwoDepositsAndWithdraw() public {
@@ -156,29 +156,29 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
 
         // Zero amount - call directly, not through TestUtils
         vm.startPrank(alice);
-        tokenA.approve(address(liquidityManager), 0);
-        vm.expectRevert("Deposit amount must be greater than 0");
-        liquidityManager.deposit(depositId, 0);
+        token1.approve(address(liquidityManager), 0);
+        vm.expectRevert("Deposit amountA must be greater than 0");
+        liquidityManager.deposit(depositId, address(token1), 0);
         vm.stopPrank();
 
         // Normal deposit
         vm.startPrank(alice);
-        tokenA.approve(address(liquidityManager), depositAmount);
-        liquidityManager.deposit(depositId, depositAmount);
+        token1.approve(address(liquidityManager), depositAmount);
+        liquidityManager.deposit(depositId, address(token1), depositAmount);
         vm.stopPrank();
 
         // Duplicate depositId
         vm.startPrank(alice);
-        tokenA.approve(address(liquidityManager), depositAmount);
+        token1.approve(address(liquidityManager), depositAmount);
         vm.expectRevert("Deposit ID already exists for user");
-        liquidityManager.deposit(depositId, depositAmount);
+        liquidityManager.deposit(depositId, address(token1), depositAmount);
         vm.stopPrank();
     }
 
     function test_CannotWithdrawNonexistentDeposit() public {
         bytes16 depositId = bytes16(keccak256(abi.encodePacked("testNonexistent", block.timestamp)));
         vm.expectRevert("Deposit is not active");
-        liquidityManager.withdraw(depositId);
+        liquidityManager.withdraw(depositId, address(token1));
     }
 
     function test_MultiUserDeposits() public {
@@ -224,8 +224,8 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // whale swaps USDC.e to USDT
         generateSwapFees(
             whale,
-            tokenA,
-            tokenB,
+            token1,
+            token0,
             universalRouter,
             v3SwapExactIn,
             tickSpacing,
@@ -276,7 +276,7 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
 
         // 3. Bob deposits first
         vm.startPrank(bob);
-        tokenA.approve(address(liquidityManager), depositAmountB1);
+        token1.approve(address(liquidityManager), depositAmountB1);
         deposit(bob, bobDeposit1, depositAmountB1);
         vm.stopPrank();
 
@@ -335,8 +335,8 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         assertEq(depD1.isActive, false, "Dave deposit1 should be inactive");
 
         // 15. Verify nothing is left in the contract
-        assertEq(tokenA.balanceOf(address(liquidityManager)), 0, "TokenA balance should be 0");
-        assertEq(tokenB.balanceOf(address(liquidityManager)), 0, "TokenB balance should be 0");
+        assertEq(token0.balanceOf(address(liquidityManager)), 0, "token0 balance should be 0");
+        assertEq(token1.balanceOf(address(liquidityManager)), 0, "token1 balance should be 0");
     }
 
     function test_PauseAndUnpause() public {
@@ -353,12 +353,12 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // Deposit should revert when paused
         vm.prank(alice);
         vm.expectRevert();
-        liquidityManager.deposit(bytes16(keccak256("id1")), 1e6);
+        liquidityManager.deposit(bytes16(keccak256("id1")), address(token1), 1e6);
 
         // Withdraw should revert when paused
         vm.prank(alice);
         vm.expectRevert();
-        liquidityManager.withdraw(bytes16(keccak256("id1")));
+        liquidityManager.withdraw(bytes16(keccak256("id1")), address(token1));
 
         // Only owner can unpause
         vm.prank(alice);

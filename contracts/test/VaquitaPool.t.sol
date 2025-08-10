@@ -62,8 +62,8 @@ contract VaquitaPoolTest is TestUtils {
         VelodromeLiquidityManager liquidityManagerImpl = new VelodromeLiquidityManager();
         bytes memory liquidityManagerInitData = abi.encodeWithSelector(
             liquidityManagerImpl.initialize.selector,
-            address(token),
             address(lpPairToken),
+            address(token),
             address(universalRouter),
             address(positionManager),
             v3SwapExactIn,

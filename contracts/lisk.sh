@@ -8,9 +8,11 @@ forge script script/VelodromeLiquidityManagerProxy.s.sol:VelodromeLiquidityManag
  --etherscan-api-key $ETHERSCAN_API_KEY \
  --private-key $PRIVATE_KEY \
  --broadcast \
+ --verifier blockscout \
+ --verifier-url 'https://blockscout.lisk.com/api/' \
  --verify \
- --json | jq -r '.returns | .[] | select(.name=="result") | .value'
- )
+ --json
+)
 echo "Deployed Liquidity Manager at: $LIQUIDITY_MANAGER"
 
 forge script script/DeployVaquitaPoolLisk.s.sol:DeployVaquitaPoolProxyScript \
@@ -18,7 +20,9 @@ forge script script/DeployVaquitaPoolLisk.s.sol:DeployVaquitaPoolProxyScript \
  --etherscan-api-key $ETHERSCAN_API_KEY \
  --private-key $PRIVATE_KEY \
  --broadcast \
+ --verifier blockscout \
+ --verifier-url 'https://blockscout.lisk.com/api/' \
  --verify \
  --sig "run(address)" \
- $LIQUIDITY_MANAGER
+ 0x6098d9e60F67d3c8515e08fCBc01E341B8821332
 echo "Deployed Vaquita Pool at: $VAQUITA_POOL"

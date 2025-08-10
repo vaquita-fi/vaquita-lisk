@@ -216,7 +216,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @return sharesToMint The number of shares minted.
      */
     function _supplyToVelodrome(bytes16 depositId, uint256 amount) internal returns (uint256 sharesToMint) {
-        sharesToMint = liquidityManager.deposit(depositId, amount);
+        sharesToMint = liquidityManager.deposit(depositId, address(token), amount);
     }
 
     /**
@@ -226,7 +226,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @return withdrawnAmount The amount of tokens withdrawn.
      */
     function _withdrawFromVelodrome(bytes16 depositId) internal returns (uint256 withdrawnAmount) {
-        withdrawnAmount = liquidityManager.withdraw(depositId);
+        withdrawnAmount = liquidityManager.withdraw(depositId, address(token));
     }
 
     /**
@@ -275,9 +275,10 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @notice Withdraw protocol fees to the contract owner
      */
     function withdrawProtocolFees() external onlyOwner whenNotPaused {
+        uint256 cacheProtocolFees = protocolFees;
         protocolFees = 0;
-        token.safeTransfer(owner(), protocolFees);
-        emit ProtocolFeesWithdrawn(protocolFees);
+        token.safeTransfer(owner(), cacheProtocolFees);
+        emit ProtocolFeesWithdrawn(cacheProtocolFees);
     }
 
     /**

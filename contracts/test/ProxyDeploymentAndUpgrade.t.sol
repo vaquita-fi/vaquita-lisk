@@ -10,8 +10,8 @@ import {VaquitaPool} from "../src/VaquitaPool.sol";
 import {TestUtils} from "./TestUtils.sol";
 
 contract ProxyDeploymentAndUpgradeTest is TestUtils {
-    address tokenA = address(0xF242275d3a6527d877f2c927a82D9b057609cc71);
-    address tokenB = address(0x05D032ac25d322df992303dCa074EE7392C117b9);
+    address token0 = address(0x05D032ac25d322df992303dCa074EE7392C117b9);
+    address token1 = address(0xF242275d3a6527d877f2c927a82D9b057609cc71);
     address universalRouter = address(0x652e53C6a4FE39B6B30426d9c96376a105C89A95);
     address nonfungiblePositionManager = address(0x991d5546C4B442B4c5fdc4c8B8b8d131DEB24702);
     uint256 v3SwapExactIn = 0x00;
@@ -29,8 +29,8 @@ contract ProxyDeploymentAndUpgradeTest is TestUtils {
         VelodromeLiquidityManager implementation = new VelodromeLiquidityManager();
         bytes memory initData = abi.encodeWithSelector(
             implementation.initialize.selector,
-            tokenA,
-            tokenB,
+            token0,
+            token1,
             universalRouter,
             nonfungiblePositionManager,
             v3SwapExactIn,
@@ -44,8 +44,8 @@ contract ProxyDeploymentAndUpgradeTest is TestUtils {
             initData
         );
         VelodromeLiquidityManager proxied = VelodromeLiquidityManager(address(proxyLiquidityManager));
-        assertEq(proxied.tokenA(), tokenA, "tokenA should be set");
-        assertEq(proxied.tokenB(), tokenB, "tokenB should be set");
+        assertEq(proxied.token0(), token0, "token0 should be set");
+        assertEq(proxied.token1(), token1, "token1 should be set");
     }
 
     function test_VelodromeLiquidityManagerUpgrade() public {
@@ -59,8 +59,8 @@ contract ProxyDeploymentAndUpgradeTest is TestUtils {
             ""
         );
         VelodromeLiquidityManager proxied = VelodromeLiquidityManager(address(proxyLiquidityManager));
-        assertEq(proxied.tokenA(), tokenA, "tokenA should still be set after upgrade");
-        assertEq(proxied.tokenB(), tokenB, "tokenB should still be set after upgrade");
+        assertEq(proxied.token0(), token0, "token0 should still be set after upgrade");
+        assertEq(proxied.token1(), token1, "token1 should still be set after upgrade");
     }
 
     function test_VaquitaPoolProxyDeploymentAndUpgrade() public {
@@ -69,7 +69,7 @@ contract ProxyDeploymentAndUpgradeTest is TestUtils {
         lockPeriodsArr[0] = lockPeriod;
         bytes memory initData = abi.encodeWithSelector(
             implementation.initialize.selector,
-            tokenA,
+            token0,
             address(proxyLiquidityManager),
             lockPeriodsArr
         );
@@ -91,7 +91,7 @@ contract ProxyDeploymentAndUpgradeTest is TestUtils {
         );
         assertEq(proxyAdmin.owner(), address(this), "ProxyAdmin owner should be test contract");
         assertEq(proxied.lockPeriods(0), lockPeriod, "Lock period should still be set after upgrade");
-        assertEq(address(proxied.token()), address(tokenA), "tokenA should be set");
+        assertEq(address(proxied.token()), address(token0), "token0 should be set");
         assertEq(address(proxied.liquidityManager()), address(proxyLiquidityManager), "liquidityManager should be set");
         assertEq(proxied.lockPeriods(0), lockPeriod, "lockPeriod should be set");
     }

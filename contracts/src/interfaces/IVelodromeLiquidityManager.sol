@@ -27,14 +27,14 @@ interface IVelodromeLiquidityManager {
      * @param amount The amount of tokenA to deposit
      * @return sharesToMint The number of shares minted for this deposit
      */
-    function deposit(bytes16 _depositId, uint256 amount) external returns (uint256 sharesToMint);
+    function deposit(bytes16 _depositId, address token, uint256 amount) external returns (uint256 sharesToMint);
 
     /**
      * @notice Withdraw a user's deposit, remove liquidity, swap back to tokenA, and transfer to user
      * @param depositId The deposit ID to withdraw
      * @return finalTokenAAmount The final amount of tokenA returned to the user
      */
-    function withdraw(bytes16 depositId) external returns (uint256 finalTokenAAmount);
+    function withdraw(bytes16 depositId, address token) external returns (uint256 finalTokenAAmount);
 
     /**
      * @notice Get a user's deposit struct by depositId

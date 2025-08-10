@@ -17,8 +17,8 @@ contract VelodromeLiquidityManagerProxyScript is Script {
         console.log("VelodromeLiquidityManager implementation:", address(implementation));
 
         // Encode initializer data
-        address tokenA = address(0xF242275d3a6527d877f2c927a82D9b057609cc71); // USDC.e
-        address tokenB = address(0x05D032ac25d322df992303dCa074EE7392C117b9); // USDT
+        address token0 = address(0x05D032ac25d322df992303dCa074EE7392C117b9); // USDT
+        address token1 = address(0xF242275d3a6527d877f2c927a82D9b057609cc71); // USDC.e
         address universalRouter = address(0x652e53C6a4FE39B6B30426d9c96376a105C89A95);
         address nonfungiblePositionManager = address(0x991d5546C4B442B4c5fdc4c8B8b8d131DEB24702);
         uint256 v3SwapExactIn = 0x00;
@@ -27,8 +27,8 @@ contract VelodromeLiquidityManagerProxyScript is Script {
         int24 tickUpper = 6;
         bytes memory initData = abi.encodeWithSelector(
             implementation.initialize.selector,
-            tokenA,
-            tokenB,
+            token0,
+            token1,
             universalRouter,
             nonfungiblePositionManager,
             v3SwapExactIn,
