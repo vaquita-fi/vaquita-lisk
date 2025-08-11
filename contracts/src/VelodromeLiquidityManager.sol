@@ -14,8 +14,6 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 struct Deposit {
     bytes16 id;
