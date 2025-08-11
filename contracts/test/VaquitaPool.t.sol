@@ -210,11 +210,11 @@ contract VaquitaPoolTest is TestUtils {
         vm.startPrank(owner);
         uint256 rewardAmount = 1000e6;
         uint256 ownerBalanceBefore = token.balanceOf(owner);
-        (uint256 rewardPoolBefore,,) = vaquita.periods(lockPeriod);
+        (uint256 rewardPoolBefore,) = vaquita.periods(lockPeriod);
         token.approve(address(vaquita), rewardAmount);
         vaquita.addRewards(lockPeriod, rewardAmount);
         uint256 ownerBalanceAfter = token.balanceOf(owner);
-        (uint256 rewardPoolAfter,,) = vaquita.periods(lockPeriod);
+        (uint256 rewardPoolAfter,) = vaquita.periods(lockPeriod);
         assertEq(rewardPoolAfter, rewardPoolBefore + rewardAmount, "Reward pool should increase by rewardAmount");
         assertEq(ownerBalanceAfter, ownerBalanceBefore - rewardAmount, "Owner balance should decrease by rewardAmount");
         vm.stopPrank();
@@ -233,6 +233,8 @@ contract VaquitaPoolTest is TestUtils {
     }
 
     function test_EarlyWithdrawal() public {
+        vm.recordLogs();
+
         bytes16 aliceDepositId = bytes16(keccak256(abi.encodePacked(alice, block.timestamp)));
         uint256 aliceBalanceBefore = token.balanceOf(alice);
         deposit(alice, aliceDepositId, initialAmount);
@@ -250,7 +252,17 @@ contract VaquitaPoolTest is TestUtils {
 
         uint256 aliceWithdrawal = withdraw(alice, aliceDepositId);
         uint256 aliceBalanceAfter = token.balanceOf(alice);
-        (uint256 rewardPool, uint256 totalDeposits, uint256 totalShares) = vaquita.periods(lockPeriod);
+        (uint256 rewardPool, uint256 totalShares) = vaquita.periods(lockPeriod);
+        // assertEq(totalDeposits, 0, "Total deposits should be 0");
+        // Get total deposit from events
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 totalDeposits = 0;
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics.length > 0 && entries[i].topics[0] == keccak256("FundsDeposited(bytes16,address,uint256,uint256)")) {
+                (uint256 amount, ) = abi.decode(entries[i].data, (uint256, uint256));
+                totalDeposits += amount;
+            }
+        }
         assertEq(totalDeposits, 0, "Total deposits should be 0");
         assertEq(totalShares, 0, "Total shares should be 0");
         assertEq(rewardPool, 50e6, "Reward pool should be 50e6");
@@ -259,6 +271,8 @@ contract VaquitaPoolTest is TestUtils {
     }
 
     function test_MultipleUsersWithFeeDistribution() public {
+        vm.recordLogs();
+        
         bytes16 aliceDepositId = bytes16(keccak256(abi.encodePacked(alice, block.timestamp + 1)));
         bytes16 bobDepositId = bytes16(keccak256(abi.encodePacked(bob, block.timestamp + 1)));
         
@@ -294,7 +308,7 @@ contract VaquitaPoolTest is TestUtils {
         // Wait for lock period
         vm.warp(block.timestamp + lockPeriod);
 
-        (uint256 rewardPool,, uint256 totalShares) = vaquita.periods(lockPeriod);
+        (uint256 rewardPool, uint256 totalShares) = vaquita.periods(lockPeriod);
         console.log("vaquita.rewardPool()", rewardPool);
         console.log("vaquita.totalShares()", totalShares);
 
@@ -333,10 +347,17 @@ contract VaquitaPoolTest is TestUtils {
         // Verify both users got more than they deposited
         assertGt(aliceTotal, initialAmount, "Alice should profit");
         assertGt(bobTotal, initialAmount * 2, "Bob should profit");
-        (uint256 rewardPoolAfter, uint256 totalDepositsAfter, uint256 totalSharesAfter) = vaquita.periods(lockPeriod);
+        (uint256 rewardPoolAfter,uint256 totalSharesAfter) = vaquita.periods(lockPeriod);
+        uint256 totalDepositsAfter = 0;
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics.length > 0 && entries[i].topics[0] == keccak256("FundsDeposited(bytes16,address,uint256,uint256)")) {
+                (uint256 amount, ) = abi.decode(entries[i].data, (uint256, uint256));
+                totalDepositsAfter += amount;
+            }
+        }
         console.log("Reward pool:", rewardPoolAfter);
         assertEq(rewardPoolAfter, 0, "Reward pool should be 0");
-        assertEq(totalDepositsAfter, 0, "Total deposits should be 0");
         assertEq(totalSharesAfter, 0, "Total shares should be 0");
     }
 
@@ -410,6 +431,7 @@ contract VaquitaPoolTest is TestUtils {
     }
 
     function test_MultipleUsersWithWhaleSwap() public {
+        vm.recordLogs();
         // Multiple users deposit
         bytes16 aliceDepositId = bytes16(keccak256(abi.encodePacked(alice, block.timestamp)));
         bytes16 bobDepositId = bytes16(keccak256(abi.encodePacked(bob, block.timestamp, "bob")));
@@ -422,7 +444,17 @@ contract VaquitaPoolTest is TestUtils {
         // Charlie deposits
         uint256 charlieShares = deposit(charlie, charlieDepositId, initialAmount);
 
-        (, uint256 totalDeposits, uint256 totalShares) = vaquita.periods(lockPeriod);
+        (, uint256 totalShares) = vaquita.periods(lockPeriod);
+        uint256 totalDeposits = 0;
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        console.log("entries.length", entries.length);
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (entries[i].topics.length > 0 && entries[i].topics[0] == keccak256("FundsDeposited(bytes16,address,uint256,uint256)")) {
+                (uint256 amount, ) = abi.decode(entries[i].data, (uint256, uint256));
+                totalDeposits += amount;
+            }
+        }
+        console.log("pasa totalDeposits", totalDeposits);
         assertEq(aliceShares + bobShares + charlieShares, totalShares, "Total shares should be 3 * initialAmount");
         assertEq(totalDeposits, 3 * initialAmount, "Total deposits should be 3 * initialAmount");
         

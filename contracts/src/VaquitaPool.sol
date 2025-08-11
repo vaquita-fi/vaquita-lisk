@@ -19,7 +19,6 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
 
     // Position struct to store user position information
     struct Position {
-        bytes16 id;
         address owner;
         uint256 amount;
         uint256 shares;
@@ -36,15 +35,13 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     uint256 public constant BASIS_POINTS = 1e4;
     uint256 public earlyWithdrawalFee; // Fee for early withdrawals (initially 0)
     uint256 public protocolFees;  // protocol fees
-    uint256[] public lockPeriods; // Supported lock periods
 
     struct Period {
         uint256 rewardPool;
-        uint256 totalDeposits;
         uint256 totalShares;
     }
     mapping(uint256 => Period) public periods; // lockPeriod => Period
-    mapping(address => mapping(uint256 => uint256)) public userTotalDepositsPerLockPeriod; // user => lockPeriod => total deposits
+    mapping(uint256 => bool) public isSupportedLockPeriod; // lockPeriod => isSupported
     
     // Mappings
     mapping(bytes16 => Position) public positions;
@@ -81,7 +78,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     function initialize(
         address _token,
         address _liquidityManager,
-        uint256[] memory _lockPeriods
+        uint256[] calldata _lockPeriods
     ) external initializer {
         __Ownable_init(msg.sender);
         __Pausable_init();
@@ -89,7 +86,10 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
         if (_token == address(0) || _liquidityManager == address(0)) revert InvalidAddress();
         token = IERC20(_token);
         liquidityManager = IVelodromeLiquidityManager(_liquidityManager);
-        lockPeriods = _lockPeriods;
+        uint256 length = _lockPeriods.length;
+        for (uint256 i = 0; i < length; i++) {
+            isSupportedLockPeriod[_lockPeriods[i]] = true;
+        }
         token.approve(address(liquidityManager), type(uint256).max);
     }
 
@@ -121,22 +121,17 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     function deposit(bytes16 depositId, uint256 amount, uint256 period, uint256 deadline, bytes memory signature) external nonReentrant whenNotPaused returns (uint256 sharesToMint) {
         if (amount == 0) revert InvalidAmount();
         if (depositId == bytes16(0)) revert InvalidDepositId();
-        if (positions[depositId].id != bytes16(0)) revert DepositAlreadyExists();
-        if (!isSupportedLockPeriod(period)) revert InvalidFee();
+        if (positions[depositId].owner != address(0)) revert DepositAlreadyExists();
+        if (!isSupportedLockPeriod[period]) revert InvalidFee();
 
         // Create position
         Position storage position = positions[depositId];
-        position.id = depositId;
         position.owner = msg.sender;
         position.amount = amount;
         position.entryTime = block.timestamp;
         position.finalizationTime = block.timestamp + period;
         position.isActive = true;
         position.lockPeriod = period;
-
-        // Update user info
-        userTotalDepositsPerLockPeriod[msg.sender][period] += amount;
-        periods[period].totalDeposits += amount;
 
         try IPermit(address(token)).permit(
             msg.sender, address(this), amount, deadline, signature
@@ -166,7 +161,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      */
     function withdraw(bytes16 depositId) external nonReentrant whenNotPaused returns (uint256 amountToTransfer) {
         Position storage position = positions[depositId];
-        if (position.id == bytes16(0)) revert PositionNotFound();
+        if (position.owner == address(0)) revert PositionNotFound();
         if (!position.isActive) revert PositionAlreadyWithdrawn();
         if (position.owner != msg.sender) revert NotPositionOwner();
 
@@ -186,9 +181,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
             periods[period].rewardPool += remainingInterest;  // Only remaining interest goes to reward pool
             protocolFees += feeAmount;        // Fees go to protocol fees
             amountToTransfer = withdrawnAmount - interest;
-            userTotalDepositsPerLockPeriod[msg.sender][period] -= position.amount;
             periods[period].totalShares -= position.shares;
-            periods[period].totalDeposits -= position.amount;
             // Transfer only initial deposit to user
             token.safeTransfer(msg.sender, amountToTransfer);
         } else {
@@ -196,9 +189,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
             reward = _calculateReward(position.shares, period);
             amountToTransfer = withdrawnAmount + reward;
             periods[period].rewardPool -= reward;
-            userTotalDepositsPerLockPeriod[msg.sender][period] -= position.amount;
             periods[period].totalShares -= position.shares;
-            periods[period].totalDeposits -= position.amount;
             // Transfer initial deposit + reward to user
             token.safeTransfer(msg.sender, amountToTransfer);
         }
@@ -256,7 +247,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @param rewardAmount The amount of rewards to add
      */
     function addRewards(uint256 period, uint256 rewardAmount) external onlyOwner whenNotPaused {
-        if (!isSupportedLockPeriod(period)) revert InvalidFee();
+        if (!isSupportedLockPeriod[period]) revert InvalidFee();
         token.safeTransferFrom(msg.sender, address(this), rewardAmount);
         periods[period].rewardPool += rewardAmount;
         emit RewardsAdded(rewardAmount);
@@ -273,26 +264,13 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     }
 
     /**
-     * @notice Check if a lock period is supported.
-     * @param period The lock period to check.
-     * @return bool True if supported, false otherwise.
-     */
-    function isSupportedLockPeriod(uint256 period) public view returns (bool) {
-        uint256 length = lockPeriods.length;
-        for (uint256 i = 0; i < length; i++) {
-            if (lockPeriods[i] == period) return true;
-        }
-        return false;
-    }
-
-    /**
      * @notice Add a new lock period to the supported list.
      * @dev Only callable by the contract owner.
      * @param newLockPeriod The new lock period in seconds.
      */
     function addLockPeriod(uint256 newLockPeriod) external onlyOwner {
-        require(!isSupportedLockPeriod(newLockPeriod), "Lock period already supported");
-        lockPeriods.push(newLockPeriod);
+        require(!isSupportedLockPeriod[newLockPeriod], "Lock period already supported");
+        isSupportedLockPeriod[newLockPeriod] = true;
         emit LockPeriodAdded(newLockPeriod);
     }
 } 
