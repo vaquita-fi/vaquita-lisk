@@ -22,9 +22,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
         address owner;
         uint256 amount;
         uint256 shares;
-        uint256 entryTime;
         uint256 finalizationTime;
-        bool isActive;
         uint256 lockPeriod;
     }
     
@@ -128,9 +126,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
         Position storage position = positions[depositId];
         position.owner = msg.sender;
         position.amount = amount;
-        position.entryTime = block.timestamp;
         position.finalizationTime = block.timestamp + period;
-        position.isActive = true;
         position.lockPeriod = period;
 
         try IPermit(address(token)).permit(
@@ -141,7 +137,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
         token.safeTransferFrom(msg.sender, address(this), amount);
 
         // Supply to Velodrome
-        sharesToMint = _supplyToVelodrome(depositId, amount);
+        sharesToMint = liquidityManager.deposit(depositId, address(token), amount);
         
         // AUDIT NOTE: This state change after external call is safe because:
         // 1. nonReentrant modifier prevents reentrancy
@@ -162,60 +158,34 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     function withdraw(bytes16 depositId) external nonReentrant whenNotPaused returns (uint256 amountToTransfer) {
         Position storage position = positions[depositId];
         if (position.owner == address(0)) revert PositionNotFound();
-        if (!position.isActive) revert PositionAlreadyWithdrawn();
         if (position.owner != msg.sender) revert NotPositionOwner();
+
+        position.owner = address(0);
 
         uint256 period = position.lockPeriod;
 
-        position.isActive = false;
-
         // Withdraw from Velodrome and get actual amount received
-        uint256 withdrawnAmount = _withdrawFromVelodrome(depositId);
-        uint256 interest = withdrawnAmount > position.amount ? withdrawnAmount - position.amount : 0;
+        uint256 withdrawnAmount = liquidityManager.withdraw(depositId, address(token));
 
         uint256 reward = 0;
         if (block.timestamp < position.finalizationTime) {
             // Early withdrawal - calculate fee and add remaining interest to reward pool
+            uint256 interest = withdrawnAmount > position.amount ? withdrawnAmount - position.amount : 0;
             uint256 feeAmount = (interest * earlyWithdrawalFee) / BASIS_POINTS;
             uint256 remainingInterest = interest - feeAmount;
-            periods[period].rewardPool += remainingInterest;  // Only remaining interest goes to reward pool
             protocolFees += feeAmount;        // Fees go to protocol fees
+            periods[period].rewardPool += remainingInterest;  // Only remaining interest goes to reward pool
             amountToTransfer = withdrawnAmount - interest;
-            periods[period].totalShares -= position.shares;
-            // Transfer only initial deposit to user
-            token.safeTransfer(msg.sender, amountToTransfer);
         } else {
             // Late withdrawal - calculate and distribute rewards
             reward = _calculateReward(position.shares, period);
-            amountToTransfer = withdrawnAmount + reward;
             periods[period].rewardPool -= reward;
-            periods[period].totalShares -= position.shares;
-            // Transfer initial deposit + reward to user
-            token.safeTransfer(msg.sender, amountToTransfer);
+            amountToTransfer = withdrawnAmount + reward;
         }
+        periods[period].totalShares -= position.shares;
+        token.safeTransfer(msg.sender, amountToTransfer);
 
         emit FundsWithdrawn(depositId, msg.sender, position.amount, reward);
-    }
-
-    /**
-     * @notice Supplies tokens to the VelodromeLiquidityManager and mints shares.
-     * @dev Internal function used during deposit.
-     * @param depositId The unique identifier for the position.
-     * @param amount The amount of tokens to supply.
-     * @return sharesToMint The number of shares minted.
-     */
-    function _supplyToVelodrome(bytes16 depositId, uint256 amount) internal returns (uint256 sharesToMint) {
-        sharesToMint = liquidityManager.deposit(depositId, address(token), amount);
-    }
-
-    /**
-     * @notice Withdraws tokens from the VelodromeLiquidityManager.
-     * @dev Internal function used during withdrawal.
-     * @param depositId The unique identifier for the position.
-     * @return withdrawnAmount The amount of tokens withdrawn.
-     */
-    function _withdrawFromVelodrome(bytes16 depositId) internal returns (uint256 withdrawnAmount) {
-        withdrawnAmount = liquidityManager.withdraw(depositId, address(token));
     }
 
     /**

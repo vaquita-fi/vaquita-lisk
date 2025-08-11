@@ -184,7 +184,7 @@ contract VaquitaPoolTest is TestUtils {
         deposit(alice, aliceDepositId, initialAmount);
         
         // Verify the deposit was successful
-        (, address positionOwner,, uint256 shares,,,,) = vaquita.positions(aliceDepositId);
+        (address positionOwner,, uint256 shares,,) = vaquita.positions(aliceDepositId);
         assertEq(positionOwner, alice);
         assertGt(shares, 0);
         
@@ -202,8 +202,8 @@ contract VaquitaPoolTest is TestUtils {
         deposit(alice, aliceDepositId, initialAmount);
         vm.warp(block.timestamp + lockPeriod);
         withdraw(alice, aliceDepositId);
-        (,,,,,, bool isActive,) = vaquita.positions(aliceDepositId);
-        assertFalse(isActive);
+        (address positionOwner,,,,) = vaquita.positions(aliceDepositId);
+        assertEq(positionOwner, address(0));
     }
 
     function test_AddRewardsToRewardPool() public {
@@ -261,6 +261,9 @@ contract VaquitaPoolTest is TestUtils {
             if (entries[i].topics.length > 0 && entries[i].topics[0] == keccak256("FundsDeposited(bytes16,address,uint256,uint256)")) {
                 (uint256 amount, ) = abi.decode(entries[i].data, (uint256, uint256));
                 totalDeposits += amount;
+            } else if (entries[i].topics.length > 0 && entries[i].topics[0] == keccak256("FundsWithdrawn(bytes16,address,uint256,uint256)")) {
+                (uint256 amount, ) = abi.decode(entries[i].data, (uint256, uint256));
+                totalDeposits -= amount;
             }
         }
         assertEq(totalDeposits, 0, "Total deposits should be 0");
@@ -272,7 +275,7 @@ contract VaquitaPoolTest is TestUtils {
 
     function test_MultipleUsersWithFeeDistribution() public {
         vm.recordLogs();
-        
+
         bytes16 aliceDepositId = bytes16(keccak256(abi.encodePacked(alice, block.timestamp + 1)));
         bytes16 bobDepositId = bytes16(keccak256(abi.encodePacked(bob, block.timestamp + 1)));
         
@@ -371,9 +374,8 @@ contract VaquitaPoolTest is TestUtils {
         uint256 aliceBalanceBefore = token.balanceOf(alice);
         console.log("Alice balance before deposit:", aliceBalanceBefore);
         
-        (,, uint256 positionAmount, uint256 shares,,,,) = vaquita.positions(aliceDepositId);
+        (, uint256 positionAmount,,,) = vaquita.positions(aliceDepositId);
         console.log("Position amount:", positionAmount);
-        console.log("Position shares:", shares);
 
         // Step 2: Check liquidity manager position before whale swap
         uint256 positionTokenId = liquidityManager.positionTokenId();
@@ -426,8 +428,8 @@ contract VaquitaPoolTest is TestUtils {
         }
         
         // Check if the position is now inactive
-        (,,,,,, bool isActive,) = vaquita.positions(aliceDepositId);
-        assertFalse(isActive, "Position should be inactive after withdrawal");
+        (address positionOwner,,,,) = vaquita.positions(aliceDepositId);
+        assertEq(positionOwner, address(0), "Position should be inactive after withdrawal");
     }
 
     function test_MultipleUsersWithWhaleSwap() public {

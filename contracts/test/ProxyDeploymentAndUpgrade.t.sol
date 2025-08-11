@@ -79,7 +79,7 @@ contract ProxyDeploymentAndUpgradeTest is TestUtils {
             initData
         );
         VaquitaPool proxied = VaquitaPool(address(proxy));
-        assertEq(proxied.lockPeriods(0), lockPeriod, "Lock period should be set");
+        assertEq(proxied.isSupportedLockPeriod(lockPeriod), true, "Lock period should be set");
 
         address proxyAdminAddress = _getProxyAdmin(address(proxy));
         ProxyAdmin proxyAdmin = ProxyAdmin(proxyAdminAddress);
@@ -90,9 +90,9 @@ contract ProxyDeploymentAndUpgradeTest is TestUtils {
             ""
         );
         assertEq(proxyAdmin.owner(), address(this), "ProxyAdmin owner should be test contract");
-        assertEq(proxied.lockPeriods(0), lockPeriod, "Lock period should still be set after upgrade");
+        assertEq(proxied.isSupportedLockPeriod(lockPeriod), true, "Lock period should still be set after upgrade");
         assertEq(address(proxied.token()), address(token0), "token0 should be set");
         assertEq(address(proxied.liquidityManager()), address(proxyLiquidityManager), "liquidityManager should be set");
-        assertEq(proxied.lockPeriods(0), lockPeriod, "lockPeriod should be set");
+        assertEq(proxied.isSupportedLockPeriod(lockPeriod), true, "lockPeriod should be set");
     }
 }
