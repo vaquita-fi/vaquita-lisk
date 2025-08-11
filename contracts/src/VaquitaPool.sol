@@ -34,7 +34,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     IVelodromeLiquidityManager public liquidityManager;
     
     uint256 public constant BASIS_POINTS = 1e4;
-    uint256 public earlyWithdrawalFee = 0; // Fee for early withdrawals (initially 0)
+    uint256 public earlyWithdrawalFee; // Fee for early withdrawals (initially 0)
     uint256 public protocolFees;  // protocol fees
     uint256[] public lockPeriods; // Supported lock periods
 
@@ -52,11 +52,9 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     // Events
     event FundsDeposited(bytes16 indexed depositId, address indexed owner, uint256 amount, uint256 shares);
     event FundsWithdrawn(bytes16 indexed depositId, address indexed owner, uint256 amount, uint256 reward);
-    event RewardDistributed(bytes16 indexed depositId, address indexed owner, uint256 reward);
     event LockPeriodAdded(uint256 newLockPeriod);
     event EarlyWithdrawalFeeUpdated(uint256 newFee);
     event RewardsAdded(uint256 rewardAmount);
-    event ProtocolFeesUpdated(uint256 newProtocolFees);
     event ProtocolFeesWithdrawn(uint256 protocolFees);
     // Errors
     error InvalidAmount();
@@ -227,35 +225,6 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      */
     function _withdrawFromVelodrome(bytes16 depositId) internal returns (uint256 withdrawnAmount) {
         withdrawnAmount = liquidityManager.withdraw(depositId, address(token));
-    }
-
-    /**
-     * @notice Get position details
-     * @param depositId The ID of the position
-     * @return positionOwner The position owner
-     * @return positionAmount The position amount
-     * @return shares The amount of shares received
-     * @return entryTime The entry time
-     * @return finalizationTime The finalization time
-     * @return positionIsActive Whether the position is active
-     */
-    function getPosition(bytes16 depositId) external view returns (
-        address positionOwner,
-        uint256 positionAmount,
-        uint256 shares,
-        uint256 entryTime,
-        uint256 finalizationTime,
-        bool positionIsActive
-    ) {
-        Position storage position = positions[depositId];
-        return (
-            position.owner,
-            position.amount,
-            position.shares,
-            position.entryTime,
-            position.finalizationTime,
-            position.isActive
-        );
     }
 
     /**

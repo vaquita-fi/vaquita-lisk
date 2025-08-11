@@ -184,7 +184,7 @@ contract VaquitaPoolTest is TestUtils {
         deposit(alice, aliceDepositId, initialAmount);
         
         // Verify the deposit was successful
-        (address positionOwner,, uint256 shares,,,) = vaquita.getPosition(aliceDepositId);
+        (, address positionOwner,, uint256 shares,,,,) = vaquita.positions(aliceDepositId);
         assertEq(positionOwner, alice);
         assertGt(shares, 0);
         
@@ -202,7 +202,7 @@ contract VaquitaPoolTest is TestUtils {
         deposit(alice, aliceDepositId, initialAmount);
         vm.warp(block.timestamp + lockPeriod);
         withdraw(alice, aliceDepositId);
-        (,,,,, bool isActive) = vaquita.getPosition(aliceDepositId);
+        (,,,,,, bool isActive,) = vaquita.positions(aliceDepositId);
         assertFalse(isActive);
     }
 
@@ -350,7 +350,7 @@ contract VaquitaPoolTest is TestUtils {
         uint256 aliceBalanceBefore = token.balanceOf(alice);
         console.log("Alice balance before deposit:", aliceBalanceBefore);
         
-        (, uint256 positionAmount, uint256 shares,,,) = vaquita.getPosition(aliceDepositId);
+        (,, uint256 positionAmount, uint256 shares,,,,) = vaquita.positions(aliceDepositId);
         console.log("Position amount:", positionAmount);
         console.log("Position shares:", shares);
 
@@ -405,7 +405,7 @@ contract VaquitaPoolTest is TestUtils {
         }
         
         // Check if the position is now inactive
-        (,,,,, bool isActive) = vaquita.getPosition(aliceDepositId);
+        (,,,,,, bool isActive,) = vaquita.positions(aliceDepositId);
         assertFalse(isActive, "Position should be inactive after withdrawal");
     }
 

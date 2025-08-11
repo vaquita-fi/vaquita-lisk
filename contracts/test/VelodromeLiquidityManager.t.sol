@@ -110,10 +110,10 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         deposit(alice, depositId, depositAmount);
 
         // Assert
-        Deposit memory dep = liquidityManager.getUserDeposit(alice, depositId);
-        assertEq(dep.id, depositId, "Deposit ID mismatch");
-        assertGt(dep.shares, 0, "Shares should be > 0");
-        assertGt(dep.amount0Contributed + dep.amount1Contributed, 0, "Amounts should be > 0");
+        (bytes16 id, uint256 shares, uint256 amount0Contributed, uint256 amount1Contributed,,,,,) = liquidityManager.userDepositDetails(alice, depositId);
+        assertEq(id, depositId, "Deposit ID mismatch");
+        assertGt(shares, 0, "Shares should be > 0");
+        assertGt(amount0Contributed + amount1Contributed, 0, "Amounts should be > 0");
     }
 
     function test_WithdrawReturnsToken1AndDepositIsInactive() public {
@@ -129,8 +129,8 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // Assert
         uint256 balanceAfter = token1.balanceOf(alice);
         assertGt(balanceAfter, balanceBefore, "Should receive token1 back");
-        Deposit memory dep = liquidityManager.getUserDeposit(alice, depositId);
-        assertEq(dep.isActive, false, "Deposit should be inactive");
+        (,,,,,,,, bool isActive) = liquidityManager.userDepositDetails(alice, depositId);
+        assertEq(isActive, false, "Deposit should be inactive");
         // contract address should have no tokens
         assertEq(token0.balanceOf(address(liquidityManager)), 0, "token0 balance should be 0");
         assertEq(token1.balanceOf(address(liquidityManager)), 0, "token1 balance should be 0");
@@ -146,8 +146,8 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         deposit(alice, depositId2, depositAmount2);
         withdraw(alice, depositId);
         // second deposit should already exist in liquidityManager contract
-        Deposit memory dep = liquidityManager.getUserDeposit(alice, depositId2);
-        assertEq(dep.shares, liquidityManager.totalShares(), "Deposit should be 20");
+        (,uint256 shares,,,,,,,) = liquidityManager.userDepositDetails(alice, depositId2);
+        assertEq(shares, liquidityManager.totalShares(), "Deposit should be 20");
     }
 
     function test_CannotDepositWithZeroAmountOrDuplicateId() public {
@@ -194,15 +194,15 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         deposit(charlie, charlieDepositId, depositAmount);
 
         // Assert both have deposits
-        Deposit memory depAlice = liquidityManager.getUserDeposit(alice, aliceDepositId);
-        Deposit memory depBob = liquidityManager.getUserDeposit(bob, bobDepositId);
-        Deposit memory depCharlie = liquidityManager.getUserDeposit(charlie, charlieDepositId);
-        assertGt(depAlice.shares, 0, "Alice shares should be > 0");
-        assertGt(depBob.shares, 0, "Bob shares should be > 0");
-        assertGt(depCharlie.shares, 0, "Charlie shares should be > 0");
+        (,uint256 sharesAlice,,,,,,,) = liquidityManager.userDepositDetails(alice, aliceDepositId);
+        (,uint256 sharesBob,,,,,,,) = liquidityManager.userDepositDetails(bob, bobDepositId);
+        (,uint256 sharesCharlie,,,,,,,) = liquidityManager.userDepositDetails(charlie, charlieDepositId);
+        assertGt(sharesAlice, 0, "Alice shares should be > 0");
+        assertGt(sharesBob, 0, "Bob shares should be > 0");
+        assertGt(sharesCharlie, 0, "Charlie shares should be > 0");
         uint256 positionTokenId = liquidityManager.positionTokenId();
         (,,,,,,,uint256 liquidity,,,,) = INonfungiblePositionManager(positionManager).positions(positionTokenId);
-        assertEq(liquidity, depAlice.shares + depBob.shares + depCharlie.shares, "Liquidity should be equal");
+        assertEq(liquidity, sharesAlice + sharesBob + sharesCharlie, "Liquidity should be equal");
     }
 
     function test_MultiUserWithdraw() public {
@@ -244,10 +244,10 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // Bob withdraw
         withdraw(bob, bobDepositId);
         // Assert both have no deposits
-        Deposit memory depAlice = liquidityManager.getUserDeposit(alice, aliceDepositId);
-        Deposit memory depBob = liquidityManager.getUserDeposit(bob, bobDepositId);
-        assertEq(depAlice.isActive, false, "Alice deposit should be inactive");
-        assertEq(depBob.isActive, false, "Bob deposit should be inactive");
+        (,,,,,,,, bool isActiveAlice) = liquidityManager.userDepositDetails(alice, aliceDepositId);
+        (,,,,,,,, bool isActiveBob) = liquidityManager.userDepositDetails(bob, bobDepositId);
+        assertEq(isActiveAlice, false, "Alice deposit should be inactive");
+        assertEq(isActiveBob, false, "Bob deposit should be inactive");
         (,,,,,,,liquidity,,,,) = INonfungiblePositionManager(positionManager).positions(positionTokenId);
         assertEq(liquidity, 0, "Liquidity should be 0");
     }
@@ -286,8 +286,8 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // 5. Alice withdraws first
         withdraw(alice, aliceDeposit1);
         // Assert Alice deposit1 is inactive
-        Deposit memory depA1 = liquidityManager.getUserDeposit(alice, aliceDeposit1);
-        assertEq(depA1.isActive, false, "Alice deposit1 should be inactive");
+        (,,,,,,,, bool isActiveA1) = liquidityManager.userDepositDetails(alice, aliceDeposit1);
+        assertEq(isActiveA1, false, "Alice deposit1 should be inactive");
 
         // 6. Charlie deposits first
         deposit(charlie, charlieDeposit1, depositAmountC1);
@@ -298,32 +298,32 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // 8. Alice withdraws second
         withdraw(alice, aliceDeposit2);
         // Assert Alice deposit2 is inactive
-        Deposit memory depA2 = liquidityManager.getUserDeposit(alice, aliceDeposit2);
-        assertEq(depA2.isActive, false, "Alice deposit2 should be inactive");
+        (,,,,,,,, bool isActiveA2) = liquidityManager.userDepositDetails(alice, aliceDeposit2);
+        assertEq(isActiveA2, false, "Alice deposit2 should be inactive");
 
         // 9. Bob withdraws third
         withdraw(bob, bobDeposit3);
         // Assert Bob deposit3 is inactive
-        Deposit memory depB3 = liquidityManager.getUserDeposit(bob, bobDeposit3);
-        assertEq(depB3.isActive, false, "Bob deposit3 should be inactive");
+        (,,,,,,,, bool isActiveB3) = liquidityManager.userDepositDetails(bob, bobDeposit3);
+        assertEq(isActiveB3, false, "Bob deposit3 should be inactive");
 
         // 10. Bob withdraws second
         withdraw(bob, bobDeposit2);
         // Assert Bob deposit2 is inactive
-        Deposit memory depB2 = liquidityManager.getUserDeposit(bob, bobDeposit2);
-        assertEq(depB2.isActive, false, "Bob deposit2 should be inactive");
+        (,,,,,,,, bool isActiveB2) = liquidityManager.userDepositDetails(bob, bobDeposit2);
+        assertEq(isActiveB2, false, "Bob deposit2 should be inactive");
 
         // 11. Bob withdraws first
         withdraw(bob, bobDeposit1);
         // Assert Bob deposit1 is inactive
-        Deposit memory depB1 = liquidityManager.getUserDeposit(bob, bobDeposit1);
-        assertEq(depB1.isActive, false, "Bob deposit1 should be inactive");
+        (,,,,,,,, bool isActiveB1) = liquidityManager.userDepositDetails(bob, bobDeposit1);
+        assertEq(isActiveB1, false, "Bob deposit1 should be inactive");
 
         // 12. Charlie withdraws first
         withdraw(charlie, charlieDeposit1);
         // Assert Charlie deposit1 is inactive
-        Deposit memory depC1 = liquidityManager.getUserDeposit(charlie, charlieDeposit1);
-        assertEq(depC1.isActive, false, "Charlie deposit1 should be inactive");
+        (,,,,,,,, bool isActiveC1) = liquidityManager.userDepositDetails(charlie, charlieDeposit1);
+        assertEq(isActiveC1, false, "Charlie deposit1 should be inactive");
 
         // 13. Dave deposits first
         deposit(dave, daveDeposit1, depositAmountD1);
@@ -331,8 +331,8 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // 14. Dave withdraws first
         withdraw(dave, daveDeposit1);
 
-        Deposit memory depD1 = liquidityManager.getUserDeposit(dave, daveDeposit1);
-        assertEq(depD1.isActive, false, "Dave deposit1 should be inactive");
+        (,,,,,,,, bool isActiveD1) = liquidityManager.userDepositDetails(dave, daveDeposit1);
+        assertEq(isActiveD1, false, "Dave deposit1 should be inactive");
 
         // 15. Verify nothing is left in the contract
         assertEq(token0.balanceOf(address(liquidityManager)), 0, "token0 balance should be 0");

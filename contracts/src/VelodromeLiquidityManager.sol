@@ -197,7 +197,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
         uint256 balanceBAfter = IERC20(tokenB).balanceOf(address(this));
         uint256 amountB = balanceBAfter - balanceBBefore;
 
-        uint256 sharesToMint = _addLiquidity(tokenA, tokenB, amountA - swapAmount, amountB, msg.sender, depositId);
+        uint256 sharesToMint = _addLiquidity(tokenA, amountA - swapAmount, amountB, msg.sender, depositId);
         emit FundsDeposited(msg.sender, depositId, amountA - swapAmount, amountB, sharesToMint);
         return sharesToMint;
     }
@@ -209,7 +209,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      * @param depositor The user address
      * @param depositId The deposit ID
      */
-    function _addLiquidity(address tokenA, address tokenB, uint256 amountA, uint256 amountB, address depositor, bytes16 depositId) internal returns (uint256) {
+    function _addLiquidity(address tokenA, uint256 amountA, uint256 amountB, address depositor, bytes16 depositId) internal returns (uint256) {
         // No need to approve here due to approve-once pattern
         console.log("_addLiquidity");
         uint256 amount0 = tokenA == token0 ? amountA : amountB;
@@ -332,16 +332,6 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
         } else {
             revert("Wrong token");
         }
-    }
-
-    /**
-     * @notice Get a user's deposit struct by depositId
-     * @param user The user address
-     * @param depositId The deposit ID
-     * @return The Deposit struct
-     */
-    function getUserDeposit(address user, bytes16 depositId) external view returns (Deposit memory) {
-        return userDepositDetails[user][depositId];
     }
 
     /**
