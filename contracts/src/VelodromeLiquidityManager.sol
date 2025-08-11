@@ -104,16 +104,20 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
     }
 
     /**
-     * @notice Decreases and collects liquidity from the position proportional to the given share amount.
-     * @param shares The number of shares to remove from the position.
-     * @return collectedAmount0 The amount of token0 collected from the position.
-     * @return collectedAmount1 The amount of token1 collected from the position.
-     */
+    * @notice Decreases and collects liquidity from the position proportional to the given share amount.
+    * @param shares The number of shares to remove from the position.
+    * @return collectedAmount0 The amount of token0 collected (includes both fees and liquidity)
+    * @return collectedAmount1 The amount of token1 collected (includes both fees and liquidity)
+    */
     function _decreaseAndCollectLiquidity(uint256 shares) internal returns (uint256 collectedAmount0, uint256 collectedAmount1) {
         console.log("_decreaseAndCollectLiquidity");
         if (totalShares == 0) return (0, 0);
-        (, , , , , , , uint128 totalPositionLiquidity, , , uint128 tokensOwed0, uint128 tokensOwed1) = nonfungiblePositionManager.positions(positionTokenId);
+        console.log("positionTokenId", positionTokenId);
+        
+        (, , , , , , , uint128 totalPositionLiquidity, , , , ) = nonfungiblePositionManager.positions(positionTokenId);
+        console.log("totalPositionLiquidity", totalPositionLiquidity);
         uint128 liquidityToRemove = uint128((shares * totalPositionLiquidity) / totalShares);
+        console.log("liquidityToRemove", liquidityToRemove);
 
         DecreaseLiquidityParams memory params = DecreaseLiquidityParams({
             tokenId: positionTokenId,
@@ -123,29 +127,33 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
             deadline: block.timestamp
         });
 
-        // Step 1: Decrease liquidity (this only updates the position, doesn't transfer tokens)
+        // Step 1: Decrease liquidity - this adds the liquidity tokens to tokensOwed
         nonfungiblePositionManager.decreaseLiquidity(params);
-        console.log("tokensOwed0", tokensOwed0);
-        console.log("tokensOwed1", tokensOwed1);
+        
+        // Step 2: Get the updated tokensOwed values (now includes fees + decreased liquidity)
+        (, , , , , , , , , , uint128 tokensOwed0, uint128 tokensOwed1) = nonfungiblePositionManager.positions(positionTokenId);
+        console.log("tokensOwed0 after decrease", tokensOwed0);
+        console.log("tokensOwed1 after decrease", tokensOwed1);
         console.log("shares", shares);
         console.log("totalShares", totalShares);
         
-        // Step 2: Collect the tokens from the position (only if there are tokens to collect)
-        uint128 amount0ToCollect = SafeCast.toUint128((shares * tokensOwed0) / totalShares);
-        uint128 amount1ToCollect = SafeCast.toUint128((shares * tokensOwed1) / totalShares);
-        
-        if (amount0ToCollect > 0 || amount1ToCollect > 0) {
-            CollectParams memory collectParams = CollectParams({
-                tokenId: positionTokenId,
-                recipient: address(this), // Collect to this contract first
-                amount0Max: amount0ToCollect,
-                amount1Max: amount1ToCollect
-            });
-            (collectedAmount0, collectedAmount1) = nonfungiblePositionManager.collect(collectParams);
-        } else {
-            collectedAmount0 = 0;
-            collectedAmount1 = 0;
+        // Step 3: Collect this user's proportional share of ALL available tokens
+        if (tokensOwed0 > 0 || tokensOwed1 > 0) {
+            // Calculate this user's share of the total owed tokens
+            uint128 amount0ToCollect = uint128((shares * tokensOwed0) / totalShares);
+            uint128 amount1ToCollect = uint128((shares * tokensOwed1) / totalShares);
+            
+            if (amount0ToCollect > 0 || amount1ToCollect > 0) {
+                CollectParams memory collectParams = CollectParams({
+                    tokenId: positionTokenId,
+                    recipient: address(this),
+                    amount0Max: amount0ToCollect,
+                    amount1Max: amount1ToCollect
+                });
+                (collectedAmount0, collectedAmount1) = nonfungiblePositionManager.collect(collectParams);
+            }
         }
+        
         totalShares -= shares;
         console.log("After totalShares", totalShares);
         console.log("collectedAmount0", collectedAmount0);
@@ -203,8 +211,11 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      */
     function _addLiquidity(address tokenA, address tokenB, uint256 amountA, uint256 amountB, address depositor, bytes16 depositId) internal returns (uint256) {
         // No need to approve here due to approve-once pattern
+        console.log("_addLiquidity");
         uint256 amount0 = tokenA == token0 ? amountA : amountB;
         uint256 amount1 = tokenA == token0 ? amountB : amountA;
+        console.log("amount0", amount0);
+        console.log("amount1", amount1);
         uint256 sharesToMint;
         uint256 amount0Used;
         uint256 amount1Used;
@@ -257,6 +268,11 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
             amount1Remaining: amount1 - amount1Used,
             isActive: true
         });
+        console.log("amount0Used", amount0Used);
+        console.log("amount1Used", amount1Used);
+        console.log("amount0Remaining", amount0 - amount0Used);
+        console.log("amount1Remaining", amount1 - amount1Used);
+        console.log("positionTokenId", positionTokenId);
         userDepositIds[depositor].push(depositId);
         emit FundsDeposited(depositor, depositId, amount0, amount1, sharesToMint);
         return sharesToMint;
@@ -276,6 +292,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
 
         (uint256 collectedAmount0, uint256 collectedAmount1) = _decreaseAndCollectLiquidity(shares);
 
+        // Add the unused deposit tokens that were sitting in the contract
         uint256 finalToken0Amount = collectedAmount0 + depositToWithdraw.amount0Remaining;
         uint256 finalToken1Amount = collectedAmount1 + depositToWithdraw.amount1Remaining;
 
