@@ -15,7 +15,6 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import {console} from "forge-std/console.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 struct Deposit {
@@ -110,14 +109,10 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
     * @return collectedAmount1 The amount of token1 collected (includes both fees and liquidity)
     */
     function _decreaseAndCollectLiquidity(uint256 shares) internal returns (uint256 collectedAmount0, uint256 collectedAmount1) {
-        console.log("_decreaseAndCollectLiquidity");
         if (totalShares == 0) return (0, 0);
-        console.log("positionTokenId", positionTokenId);
         
         (, , , , , , , uint128 totalPositionLiquidity, , , , ) = nonfungiblePositionManager.positions(positionTokenId);
-        console.log("totalPositionLiquidity", totalPositionLiquidity);
         uint128 liquidityToRemove = uint128((shares * totalPositionLiquidity) / totalShares);
-        console.log("liquidityToRemove", liquidityToRemove);
 
         DecreaseLiquidityParams memory params = DecreaseLiquidityParams({
             tokenId: positionTokenId,
@@ -132,10 +127,6 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
         
         // Step 2: Get the updated tokensOwed values (now includes fees + decreased liquidity)
         (, , , , , , , , , , uint128 tokensOwed0, uint128 tokensOwed1) = nonfungiblePositionManager.positions(positionTokenId);
-        console.log("tokensOwed0 after decrease", tokensOwed0);
-        console.log("tokensOwed1 after decrease", tokensOwed1);
-        console.log("shares", shares);
-        console.log("totalShares", totalShares);
         
         // Step 3: Collect this user's proportional share of ALL available tokens
         if (tokensOwed0 > 0 || tokensOwed1 > 0) {
@@ -155,9 +146,6 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
         }
         
         totalShares -= shares;
-        console.log("After totalShares", totalShares);
-        console.log("collectedAmount0", collectedAmount0);
-        console.log("collectedAmount1", collectedAmount1);
     }
 
     /**
@@ -211,11 +199,8 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
      */
     function _addLiquidity(address tokenA, uint256 amountA, uint256 amountB, address depositor, bytes16 depositId) internal returns (uint256) {
         // No need to approve here due to approve-once pattern
-        console.log("_addLiquidity");
         uint256 amount0 = tokenA == token0 ? amountA : amountB;
         uint256 amount1 = tokenA == token0 ? amountB : amountA;
-        console.log("amount0", amount0);
-        console.log("amount1", amount1);
         uint256 sharesToMint;
         uint256 amount0Used;
         uint256 amount1Used;
@@ -268,11 +253,6 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
             amount1Remaining: amount1 - amount1Used,
             isActive: true
         });
-        console.log("amount0Used", amount0Used);
-        console.log("amount1Used", amount1Used);
-        console.log("amount0Remaining", amount0 - amount0Used);
-        console.log("amount1Remaining", amount1 - amount1Used);
-        console.log("positionTokenId", positionTokenId);
         userDepositIds[depositor].push(depositId);
         emit FundsDeposited(depositor, depositId, amount0, amount1, sharesToMint);
         return sharesToMint;
