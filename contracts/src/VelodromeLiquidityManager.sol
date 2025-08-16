@@ -14,20 +14,9 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {IVelodromeLiquidityManager} from "./interfaces/IVelodromeLiquidityManager.sol";
 
-struct Deposit {
-    bytes16 id;
-    uint256 shares;
-    uint256 amount0Contributed;
-    uint256 amount1Contributed;
-    uint256 amount0Used;
-    uint256 amount1Used;
-    uint256 amount0Remaining;
-    uint256 amount1Remaining;
-    bool isActive;
-}
-
-contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable {
+contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable, IVelodromeLiquidityManager {
     address public token0;
     address public token1;
     IUniversalRouter public universalRouter;
@@ -42,12 +31,6 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
 
     // Track each deposit for every user
     mapping(address => mapping(bytes16 => Deposit)) public userDepositDetails;
-    mapping(address => bytes16[]) public userDepositIds;
-
-    /// @notice Emitted when a user makes a deposit
-    event FundsDeposited(address indexed user, bytes16 indexed depositId, uint256 amountA, uint256 amountB, uint256 shares);
-    /// @notice Emitted when a user withdraws
-    event FundsWithdrawn(address indexed user, bytes16 indexed depositId, uint256 amountA);
 
     // Errors
     error InvalidAddress();
@@ -241,17 +224,11 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
 
         totalShares += sharesToMint;
         userDepositDetails[depositor][depositId] = Deposit({
-            id: depositId,
             shares: sharesToMint,
-            amount0Contributed: amount0,
-            amount1Contributed: amount1,
-            amount0Used: amount0Used,
-            amount1Used: amount1Used,
             amount0Remaining: amount0 - amount0Used,
             amount1Remaining: amount1 - amount1Used,
             isActive: true
         });
-        userDepositIds[depositor].push(depositId);
         emit FundsDeposited(depositor, depositId, amount0, amount1, sharesToMint);
         return sharesToMint;
     }
@@ -264,7 +241,6 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
         Deposit storage depositToWithdraw = userDepositDetails[msg.sender][depositId];
         uint256 shares = depositToWithdraw.shares;
         require(depositToWithdraw.isActive, "Deposit is not active");
-        require(depositToWithdraw.id == depositId, "Only deposit owner can withdraw");
 
         depositToWithdraw.isActive = false;
 
@@ -310,14 +286,5 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
         } else {
             revert("Wrong token");
         }
-    }
-
-    /**
-     * @notice Get all deposit IDs for a user
-     * @param user The user address
-     * @return Array of deposit IDs
-     */
-    function getUserDepositIds(address user) external view returns (bytes16[] memory) {
-        return userDepositIds[user];
     }
 }

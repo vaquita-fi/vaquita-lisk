@@ -4,7 +4,6 @@ pragma solidity 0.8.30;
 import {Script, console} from "forge-std/Script.sol";
 import {VaquitaPool} from "../src/VaquitaPool.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 
 contract DeployVaquitaPoolProxyScript is Script {
     function run(address _liquidityManager) public returns (address) {
