@@ -229,7 +229,6 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
             amount1Remaining: amount1 - amount1Used,
             isActive: true
         });
-        emit FundsDeposited(depositor, depositId, amount0, amount1, sharesToMint);
         return sharesToMint;
     }
 
