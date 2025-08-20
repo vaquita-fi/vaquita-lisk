@@ -83,7 +83,7 @@ contract VelodromeLiquidityManagerTest is TestUtils {
 
     function deposit(
         address user,
-        bytes16 depositId,
+        bytes32 depositId,
         uint256 depositAmount
     ) public returns (uint256) {
         vm.startPrank(user);
@@ -100,7 +100,7 @@ contract VelodromeLiquidityManagerTest is TestUtils {
 
     function withdraw(
         address user,
-        bytes16 depositId
+        bytes32 depositId
     ) public returns (uint256) {
         vm.startPrank(user);
         liquidityManager.withdraw(depositId, address(token1));
@@ -111,7 +111,7 @@ contract VelodromeLiquidityManagerTest is TestUtils {
     function test_DepositCreatesDepositRecord() public {
         // Arrange
         uint256 depositAmount = 10 * 1e6; // Adjust decimals as needed
-        bytes16 depositId = bytes16(keccak256(abi.encodePacked("testDeposit", block.timestamp)));
+        bytes32 depositId = bytes32(keccak256(abi.encodePacked("testDeposit", block.timestamp)));
 
         // Act
         deposit(alice, depositId, depositAmount);
@@ -125,7 +125,7 @@ contract VelodromeLiquidityManagerTest is TestUtils {
     function test_WithdrawReturnsToken1AndDepositIsInactive() public {
         // Arrange
         uint256 depositAmount = 10 * 1e6; // Adjust decimals as needed
-        bytes16 depositId = bytes16(keccak256(abi.encodePacked("testWithdraw", block.timestamp)));
+        bytes32 depositId = bytes32(keccak256(abi.encodePacked("testWithdraw", block.timestamp)));
         deposit(alice, depositId, depositAmount);
         uint256 balanceBefore = token1.balanceOf(alice);
 
@@ -146,8 +146,8 @@ contract VelodromeLiquidityManagerTest is TestUtils {
         // Arrange
         uint256 depositAmount = 20 * 1e6; // Adjust decimals as needed
         uint256 depositAmount2 = 10 * 1e6;
-        bytes16 depositId = bytes16(keccak256(abi.encodePacked("testTwoDepositsAndWithdraw", block.timestamp)));
-        bytes16 depositId2 = bytes16(keccak256(abi.encodePacked("testTwoDepositsAndWithdraw2", block.timestamp)));
+        bytes32 depositId = bytes32(keccak256(abi.encodePacked("testTwoDepositsAndWithdraw", block.timestamp)));
+        bytes32 depositId2 = bytes32(keccak256(abi.encodePacked("testTwoDepositsAndWithdraw2", block.timestamp)));
         deposit(alice, depositId, depositAmount);
         deposit(alice, depositId2, depositAmount2);
         withdraw(alice, depositId);
@@ -158,7 +158,7 @@ contract VelodromeLiquidityManagerTest is TestUtils {
 
     function test_CannotDepositWithZeroAmountOrDuplicateId() public {
         uint256 depositAmount = 10 * 1e6;
-        bytes16 depositId = bytes16(keccak256(abi.encodePacked("testZeroOrDuplicate", block.timestamp)));
+        bytes32 depositId = bytes32(keccak256(abi.encodePacked("testZeroOrDuplicate", block.timestamp)));
 
         // Zero amount - call directly, not through TestUtils
         vm.startPrank(alice);
@@ -182,16 +182,16 @@ contract VelodromeLiquidityManagerTest is TestUtils {
     }
 
     function test_CannotWithdrawNonexistentDeposit() public {
-        bytes16 depositId = bytes16(keccak256(abi.encodePacked("testNonexistent", block.timestamp)));
+        bytes32 depositId = bytes32(keccak256(abi.encodePacked("testNonexistent", block.timestamp)));
         vm.expectRevert("Deposit is not active");
-        liquidityManager.withdraw(depositId, address(token1));
+        withdraw(alice, depositId);
     }
 
     function test_MultiUserDeposits() public {
         uint256 depositAmount = 10 * 1e6;
-        bytes16 aliceDepositId = bytes16(keccak256(abi.encodePacked("aliceDeposit", block.timestamp)));
-        bytes16 bobDepositId = bytes16(keccak256(abi.encodePacked("bobDeposit", block.timestamp)));
-        bytes16 charlieDepositId = bytes16(keccak256(abi.encodePacked("charlieDeposit", block.timestamp)));
+        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked("aliceDeposit", block.timestamp)));
+        bytes32 bobDepositId = bytes32(keccak256(abi.encodePacked("bobDeposit", block.timestamp)));
+        bytes32 charlieDepositId = bytes32(keccak256(abi.encodePacked("charlieDeposit", block.timestamp)));
         // Alice deposit
         deposit(alice, aliceDepositId, depositAmount);
         // Bob deposit
@@ -214,12 +214,12 @@ contract VelodromeLiquidityManagerTest is TestUtils {
     function test_MultiUserWithdraw() public {
         uint256 aliceDepositAmount = 100_000 * 1e6;
         uint256 bobDepositAmount = 100_000 * 1e6;
-        bytes16 aliceDepositId = bytes16(keccak256(abi.encodePacked("aliceDeposit", block.timestamp)));
+        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked("aliceDeposit", block.timestamp)));
         console.log("Alice depositId");
-        console.logBytes16(aliceDepositId);
-        bytes16 bobDepositId = bytes16(keccak256(abi.encodePacked("bobDeposit", block.timestamp)));
+        console.logBytes32(aliceDepositId);
+        bytes32 bobDepositId = bytes32(keccak256(abi.encodePacked("bobDeposit", block.timestamp)));
         console.log("Bob depositId");
-        console.logBytes16(bobDepositId);
+        console.logBytes32(bobDepositId);
         // Alice deposit
         uint256 aliceShares = deposit(alice, aliceDepositId, aliceDepositAmount);
         console.log("Alice shares:", aliceShares);
@@ -267,13 +267,13 @@ contract VelodromeLiquidityManagerTest is TestUtils {
         uint256 depositAmountC1 = 12 * 1e6;
         uint256 depositAmountD1 = 14 * 1e6;
         // Unique deposit IDs
-        bytes16 aliceDeposit1 = bytes16(keccak256(abi.encodePacked("aliceDeposit1", block.timestamp)));
-        bytes16 aliceDeposit2 = bytes16(keccak256(abi.encodePacked("aliceDeposit2", block.timestamp)));
-        bytes16 bobDeposit1 = bytes16(keccak256(abi.encodePacked("bobDeposit1", block.timestamp)));
-        bytes16 bobDeposit2 = bytes16(keccak256(abi.encodePacked("bobDeposit2", block.timestamp)));
-        bytes16 bobDeposit3 = bytes16(keccak256(abi.encodePacked("bobDeposit3", block.timestamp)));
-        bytes16 charlieDeposit1 = bytes16(keccak256(abi.encodePacked("charlieDeposit1", block.timestamp)));
-        bytes16 daveDeposit1 = bytes16(keccak256(abi.encodePacked("daveDeposit1", block.timestamp)));
+        bytes32 aliceDeposit1 = bytes32(keccak256(abi.encodePacked("aliceDeposit1", block.timestamp)));
+        bytes32 aliceDeposit2 = bytes32(keccak256(abi.encodePacked("aliceDeposit2", block.timestamp)));
+        bytes32 bobDeposit1 = bytes32(keccak256(abi.encodePacked("bobDeposit1", block.timestamp)));
+        bytes32 bobDeposit2 = bytes32(keccak256(abi.encodePacked("bobDeposit2", block.timestamp)));
+        bytes32 bobDeposit3 = bytes32(keccak256(abi.encodePacked("bobDeposit3", block.timestamp)));
+        bytes32 charlieDeposit1 = bytes32(keccak256(abi.encodePacked("charlieDeposit1", block.timestamp)));
+        bytes32 daveDeposit1 = bytes32(keccak256(abi.encodePacked("daveDeposit1", block.timestamp)));
         // 1. Alice deposits first
         deposit(alice, aliceDeposit1, depositAmountA1);
 
@@ -359,12 +359,12 @@ contract VelodromeLiquidityManagerTest is TestUtils {
         // Deposit should revert when paused
         vm.prank(alice);
         vm.expectRevert();
-        liquidityManager.deposit(bytes16(keccak256("id1")), address(token1), 1e6);
+        liquidityManager.deposit(bytes32(keccak256("id1")), address(token1), 1e6);
 
         // Withdraw should revert when paused
         vm.prank(alice);
         vm.expectRevert();
-        liquidityManager.withdraw(bytes16(keccak256("id1")), address(token1));
+        liquidityManager.withdraw(bytes32(keccak256("id1")), address(token1));
 
         // Only owner can unpause
         vm.prank(alice);
@@ -383,9 +383,9 @@ contract VelodromeLiquidityManagerTest is TestUtils {
         // Arrange
         uint256 depositAmount1 = 10 * 1e6;
         uint256 depositAmount2 = 20 * 1e6;
-        bytes16 depositId1 = bytes16(keccak256(abi.encodePacked("getUserDepositIds1", block.timestamp, "a")));
-        bytes16 depositId2 = bytes16(keccak256(abi.encodePacked("getUserDepositIds2", block.timestamp, "b")));
-        bytes16[] memory depositIds = new bytes16[](2);
+        bytes32 depositId1 = bytes32(keccak256(abi.encodePacked("getUserDepositIds1", block.timestamp, "a")));
+        bytes32 depositId2 = bytes32(keccak256(abi.encodePacked("getUserDepositIds2", block.timestamp, "b")));
+        bytes32[] memory depositIds = new bytes32[](2);
         depositIds[0] = depositId1;
         depositIds[1] = depositId2;
 
