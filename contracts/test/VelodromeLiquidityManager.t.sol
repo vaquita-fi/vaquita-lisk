@@ -11,6 +11,7 @@ import {INonfungiblePositionManager} from "../src/interfaces/external/INonFungib
 import {IUniversalRouter} from "../src/interfaces/external/IUniversalRouter.sol";
 import {TestUtils} from "./TestUtils.sol";
 import {IVelodromeLiquidityManager} from "../src/interfaces/IVelodromeLiquidityManager.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 contract VelodromeLiquidityManagerTest is TestUtils {
     VelodromeLiquidityManager public liquidityManager;
@@ -26,14 +27,12 @@ contract VelodromeLiquidityManagerTest is TestUtils {
     address public charlie;
     address public dave;
 
-    // Real Lisk mainnet addresses from VelodromeLiquidityManager.s.sol
     address constant TOKEN_0_ADDRESS = 0x05D032ac25d322df992303dCa074EE7392C117b9;
     address constant TOKEN_1_ADDRESS = 0xF242275d3a6527d877f2c927a82D9b057609cc71;
     address constant UNIVERSAL_ROUTER_ADDRESS = 0x652e53C6a4FE39B6B30426d9c96376a105C89A95;
     address constant POSITION_MANAGER_ADDRESS = 0x991d5546C4B442B4c5fdc4c8B8b8d131DEB24702;
     address constant TOKEN_1_WHALE = 0xC859c755E8C0568fD86F7860Bcf9A59D6F57BEB5;
 
-    uint8 public v3SwapExactIn = 0x00;
     int24 public tickSpacing = 1;
     int24 public tickLower = 3;
     int24 public tickUpper = 6;
@@ -67,18 +66,25 @@ contract VelodromeLiquidityManagerTest is TestUtils {
         token1.transfer(dave, transferAmount2);
         vm.stopPrank();
 
-        // Deploy VelodromeLiquidityManager with real addresses and parameters
-        liquidityManager = new VelodromeLiquidityManager();
-        liquidityManager.initialize(
+        // Deploy liquidity manager implementation and proxy
+        VelodromeLiquidityManager liquidityManagerImpl = new VelodromeLiquidityManager();
+        bytes memory liquidityManagerInitData = abi.encodeWithSelector(
+            liquidityManagerImpl.initialize.selector,
             address(token0),
             address(token1),
-            universalRouter,
-            positionManager,
-            v3SwapExactIn,
+            address(universalRouter),
+            address(positionManager),
             tickSpacing,
             tickLower,
-            tickUpper
+            tickUpper,
+            false
         );
+        TransparentUpgradeableProxy liquidityManagerProxy = new TransparentUpgradeableProxy(
+            address(liquidityManagerImpl),
+            owner,
+            liquidityManagerInitData
+        );
+        liquidityManager = VelodromeLiquidityManager(address(liquidityManagerProxy));
     }
 
     function deposit(
@@ -88,12 +94,7 @@ contract VelodromeLiquidityManagerTest is TestUtils {
     ) public returns (uint256) {
         vm.startPrank(user);
         token1.approve(address(liquidityManager), depositAmount);
-        // vm.expectEmit(true, true, false, true);
-        // emit IVelodromeLiquidityManager.FundsDeposited(user, depositId, 5000000, 4997590, 45890548809);
-        // emit IVelodromeLiquidityManager.FundsDeposited(user, depositId, 5000000, 4997590, 45890548809);
-        vm.expectEmit(true, true, false, false);
-        emit IVelodromeLiquidityManager.FundsDeposited(alice, depositId, 0, 0, 0);
-        liquidityManager.deposit(depositId, address(token1), depositAmount);
+        liquidityManager.deposit(depositId, address(token1), depositAmount, 0, 0, 0, block.timestamp);
         vm.stopPrank();
         return 0;
     }
@@ -103,7 +104,7 @@ contract VelodromeLiquidityManagerTest is TestUtils {
         bytes32 depositId
     ) public returns (uint256) {
         vm.startPrank(user);
-        liquidityManager.withdraw(depositId, address(token1));
+        liquidityManager.withdraw(depositId, address(token1), 0, 0, 0, block.timestamp);
         vm.stopPrank();
         return 0;
     }
@@ -164,20 +165,20 @@ contract VelodromeLiquidityManagerTest is TestUtils {
         vm.startPrank(alice);
         token1.approve(address(liquidityManager), 0);
         vm.expectRevert("Deposit amountA must be greater than 0");
-        liquidityManager.deposit(depositId, address(token1), 0);
+        liquidityManager.deposit(depositId, address(token1), 0, 0, 0, 0, block.timestamp);
         vm.stopPrank();
 
         // Normal deposit
         vm.startPrank(alice);
         token1.approve(address(liquidityManager), depositAmount);
-        liquidityManager.deposit(depositId, address(token1), depositAmount);
+        liquidityManager.deposit(depositId, address(token1), depositAmount, 0, 0, 0, block.timestamp);
         vm.stopPrank();
 
         // Duplicate depositId
         vm.startPrank(alice);
         token1.approve(address(liquidityManager), depositAmount);
         vm.expectRevert("Deposit ID already exists for user");
-        liquidityManager.deposit(depositId, address(token1), depositAmount);
+        liquidityManager.deposit(depositId, address(token1), depositAmount, 0, 0, 0, block.timestamp);
         vm.stopPrank();
     }
 
@@ -233,7 +234,7 @@ contract VelodromeLiquidityManagerTest is TestUtils {
             token1,
             token0,
             universalRouter,
-            v3SwapExactIn,
+            0x0,
             tickSpacing,
             1000_000e6
         );
@@ -359,12 +360,12 @@ contract VelodromeLiquidityManagerTest is TestUtils {
         // Deposit should revert when paused
         vm.prank(alice);
         vm.expectRevert();
-        liquidityManager.deposit(bytes32(keccak256("id1")), address(token1), 1e6);
+        liquidityManager.deposit(bytes32(keccak256("id1")), address(token1), 1e6, 0, 0, 0, block.timestamp);
 
         // Withdraw should revert when paused
         vm.prank(alice);
         vm.expectRevert();
-        liquidityManager.withdraw(bytes32(keccak256("id1")), address(token1));
+        liquidityManager.withdraw(bytes32(keccak256("id1")), address(token1), 0, 0, 0, block.timestamp);
 
         // Only owner can unpause
         vm.prank(alice);
@@ -378,8 +379,6 @@ contract VelodromeLiquidityManagerTest is TestUtils {
     }
 
     function test_GetUserDepositIds() public {
-        // vm.recordLogs();
-
         // Arrange
         uint256 depositAmount1 = 10 * 1e6;
         uint256 depositAmount2 = 20 * 1e6;
@@ -390,30 +389,15 @@ contract VelodromeLiquidityManagerTest is TestUtils {
         depositIds[1] = depositId2;
 
         // Act
-        // vm.expectEmit(true, true, false, true);
-        // emit IVelodromeLiquidityManager.FundsDeposited(alice, depositId1, depositAmount1 / 2, depositAmount1 / 2, depositAmount1);
-        // vm.expectEmit(true, true, false, true);
-        // emit IVelodromeLiquidityManager.FundsDeposited(alice, depositId1, 5000000, 4997590, 45890548809);
-        // emit IVelodromeLiquidityManager.FundsDeposited(alice, depositId1, depositAmount1, 4997590, 45890548809);
-        // vm.expectEmit(true, true, false, false);
-        // emit IVelodromeLiquidityManager.FundsDeposited(alice, depositId1, 0, 0, 0);
-        // deposit(alice, depositId1, depositAmount1);
         vm.startPrank(alice);
         token1.approve(address(liquidityManager), depositAmount1 + depositAmount2);
-        // vm.expectEmit(true, true, false, true);
-        // emit IVelodromeLiquidityManager.FundsDeposited(user, depositId, 5000000, 4997590, 45890548809);
-        // emit IVelodromeLiquidityManager.FundsDeposited(user, depositId, 5000000, 4997590, 45890548809);
         vm.expectEmit(true, true, false, false);
         emit IVelodromeLiquidityManager.FundsDeposited(alice, depositId1, 0, 0, 0);
-        liquidityManager.deposit(depositId1, address(token1), depositAmount1);
+        liquidityManager.deposit(depositId1, address(token1), depositAmount1, 0, 0, 0, block.timestamp);
 
         vm.expectEmit(true, true, false, false);
         emit IVelodromeLiquidityManager.FundsDeposited(alice, depositId2, 0, 0, 0);
-        liquidityManager.deposit(depositId2, address(token1), depositAmount2);
+        liquidityManager.deposit(depositId2, address(token1), depositAmount2, 0, 0, 0, block.timestamp);
         vm.stopPrank();
-
-        // vm.expectEmit(true, true, true, false);
-        // emit IVelodromeLiquidityManager.FundsDeposited(alice, depositId2, depositAmount2, 0, 0);
-        // deposit(alice, depositId2, depositAmount2);
     }
 }

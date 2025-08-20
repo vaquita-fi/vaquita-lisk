@@ -21,7 +21,6 @@ contract VelodromeLiquidityManagerProxyScript is Script {
         address token1 = address(0xF242275d3a6527d877f2c927a82D9b057609cc71); // USDC.e
         address universalRouter = address(0x652e53C6a4FE39B6B30426d9c96376a105C89A95);
         address nonfungiblePositionManager = address(0x991d5546C4B442B4c5fdc4c8B8b8d131DEB24702);
-        uint256 v3SwapExactIn = 0x00;
         int24 tickSpacing = 1;
         int24 tickLower = 3;
         int24 tickUpper = 6;
@@ -31,10 +30,10 @@ contract VelodromeLiquidityManagerProxyScript is Script {
             token1,
             universalRouter,
             nonfungiblePositionManager,
-            v3SwapExactIn,
             tickSpacing,
             tickLower,
-            tickUpper
+            tickUpper,
+            false
         );
 
         // Deploy proxy

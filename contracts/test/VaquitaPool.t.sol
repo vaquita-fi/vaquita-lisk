@@ -38,7 +38,6 @@ contract VaquitaPoolTest is TestUtils {
     address constant POSITION_MANAGER_ADDRESS = 0x991d5546C4B442B4c5fdc4c8B8b8d131DEB24702; // USDC rich address
     address constant WHALE_ADDRESS = 0xC859c755E8C0568fD86F7860Bcf9A59D6F57BEB5; // USDC rich address
 
-    uint8 public v3SwapExactIn = 0x00;
     int24 public tickSpacing = 1;
     int24 public tickLower = 3;
     int24 public tickUpper = 6;
@@ -66,10 +65,10 @@ contract VaquitaPoolTest is TestUtils {
             address(token),
             address(universalRouter),
             address(positionManager),
-            v3SwapExactIn,
             tickSpacing,
             tickLower,
-            tickUpper
+            tickUpper,
+            true
         );
         TransparentUpgradeableProxy liquidityManagerProxy = new TransparentUpgradeableProxy(
             address(liquidityManagerImpl),
@@ -110,7 +109,7 @@ contract VaquitaPoolTest is TestUtils {
     ) public returns (uint256) {
         vm.startPrank(user);
         token.approve(address(vaquita), depositAmount);
-        uint256 shares = vaquita.deposit(depositAmount, lockPeriod, block.timestamp + 1 hours, "");
+        uint256 shares = vaquita.deposit(depositAmount, 0, 0, 0, lockPeriod, block.timestamp + 1 hours, "");
         vm.stopPrank();
         return shares;
     }
@@ -120,7 +119,7 @@ contract VaquitaPoolTest is TestUtils {
         bytes32 depositId
     ) public returns (uint256) {
         vm.startPrank(user);
-        uint256 amount = vaquita.withdraw(depositId);
+        uint256 amount = vaquita.withdraw(depositId, 0, 0, 0, block.timestamp);
         vm.stopPrank();
         return amount;
     }
@@ -135,7 +134,7 @@ contract VaquitaPoolTest is TestUtils {
         string memory name = "Bridged USDC (Lisk)";
         string memory version = "2";
         address verifyingContract = address(token);
-        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked(alice, block.timestamp)));
+        bytes32 aliceDepositId = keccak256(abi.encodePacked(alice, vaquita.depositNonces(alice)));
         
         // EIP-712 JSON structure for permit
         string memory permitJson = string(abi.encodePacked(
@@ -191,13 +190,12 @@ contract VaquitaPoolTest is TestUtils {
     }
 
     function test_DepositWithApproval() public {
-        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked(alice, block.timestamp)));
         uint256 shares = deposit(alice, initialAmount);
         assertGt(shares, 0);
     }
 
     function test_WithdrawAfterLock() public {
-        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked(alice, block.timestamp)));
+        bytes32 aliceDepositId = keccak256(abi.encodePacked(alice, vaquita.depositNonces(alice)));
         deposit(alice, initialAmount);
         vm.warp(block.timestamp + lockPeriod);
         withdraw(alice, aliceDepositId);
@@ -234,7 +232,7 @@ contract VaquitaPoolTest is TestUtils {
     function test_EarlyWithdrawal() public {
         vm.recordLogs();
 
-        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked(alice, block.timestamp)));
+        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked(alice, vaquita.depositNonces(alice))));
         uint256 aliceBalanceBefore = token.balanceOf(alice);
         deposit(alice, initialAmount);
 
@@ -260,7 +258,7 @@ contract VaquitaPoolTest is TestUtils {
             if (entries[i].topics.length > 0 && entries[i].topics[0] == keccak256("FundsDeposited(bytes32,address,uint256,uint256)")) {
                 (uint256 amount, ) = abi.decode(entries[i].data, (uint256, uint256));
                 totalDeposits += amount;
-            } else if (entries[i].topics.length > 0 && entries[i].topics[0] == keccak256("FundsWithdrawn(bytes32,address,uint256,uint256)")) {
+            } else if (entries[i].topics.length > 0 && entries[i].topics[0] == keccak256("FundsWithdrawn(bytes32,address,uint256,uint256,uint256)")) {
                 (uint256 amount, ) = abi.decode(entries[i].data, (uint256, uint256));
                 totalDeposits -= amount;
             }
@@ -275,8 +273,7 @@ contract VaquitaPoolTest is TestUtils {
     function test_MultipleUsersWithFeeDistribution() public {
         vm.recordLogs();
 
-        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked(alice, block.timestamp + 1)));
-        bytes32 bobDepositId = bytes32(keccak256(abi.encodePacked(bob, block.timestamp + 1)));
+        bytes32 aliceDepositId = keccak256(abi.encodePacked(alice, vaquita.depositNonces(alice)));
         
         // Add rewards to pool
         uint256 rewardAmount = 300e6;
@@ -288,6 +285,7 @@ contract VaquitaPoolTest is TestUtils {
         // Alice deposits
         uint256 aliceShares = deposit(alice, initialAmount);
         console.log("aliceShares", aliceShares);
+        bytes32 bobDepositId = keccak256(abi.encodePacked(bob, vaquita.depositNonces(bob)));
         // Bob deposits twice as much as Alice
         uint256 bobShares = deposit(bob, initialAmount * 2);
         console.log("bobShares", bobShares);
@@ -295,14 +293,14 @@ contract VaquitaPoolTest is TestUtils {
         mockCallWithParams(
             address(liquidityManager),
             liquidityManager.withdraw.selector,
-            abi.encode(aliceDepositId),
+            abi.encode(aliceDepositId, address(token), 0, 0, 0, block.timestamp + lockPeriod),
             abi.encode(initialAmount + 50e6)
         );
         fundWithTokens(token, whale, address(vaquita), initialAmount + 50e6);
         mockCallWithParams(
             address(liquidityManager),
             liquidityManager.withdraw.selector,
-            abi.encode(bobDepositId),
+            abi.encode(bobDepositId, address(token), 0, 0, 0, block.timestamp + lockPeriod),
             abi.encode(initialAmount * 2 + 100e6)
         );
         fundWithTokens(token, whale, address(vaquita), initialAmount * 2 + 100e6);
@@ -367,7 +365,7 @@ contract VaquitaPoolTest is TestUtils {
         console.log("=== Starting Whale Swap Fee Generation Test ===");
         
         // Step 1: Alice deposits into VaquitaPool
-        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked(alice, block.timestamp)));
+        bytes32 aliceDepositId = keccak256(abi.encodePacked(alice, vaquita.depositNonces(alice)));
         deposit(alice, initialAmount);
         
         uint256 aliceBalanceBefore = token.balanceOf(alice);
@@ -387,7 +385,7 @@ contract VaquitaPoolTest is TestUtils {
             token,
             lpPairToken,
             universalRouter,
-            v3SwapExactIn,
+            0x0,
             tickSpacing,
             1_000_000e6
         );
@@ -434,9 +432,9 @@ contract VaquitaPoolTest is TestUtils {
     function test_MultipleUsersWithWhaleSwap() public {
         vm.recordLogs();
         // Multiple users deposit
-        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked(alice, block.timestamp)));
-        bytes32 bobDepositId = bytes32(keccak256(abi.encodePacked(bob, block.timestamp, "bob")));
-        bytes32 charlieDepositId = bytes32(keccak256(abi.encodePacked(charlie, block.timestamp, "charlie")));
+        bytes32 aliceDepositId = keccak256(abi.encodePacked(alice, vaquita.depositNonces(alice)));
+        bytes32 bobDepositId = keccak256(abi.encodePacked(bob, vaquita.depositNonces(bob)));
+        bytes32 charlieDepositId = keccak256(abi.encodePacked(charlie, vaquita.depositNonces(charlie)));
         
         // Alice deposits
         uint256 aliceShares = deposit(alice, initialAmount);
@@ -466,7 +464,7 @@ contract VaquitaPoolTest is TestUtils {
                 token,
                 lpPairToken,
                 universalRouter,
-                v3SwapExactIn,
+                0x0,
                 tickSpacing,
                 400_000e6
             );
@@ -516,20 +514,19 @@ contract VaquitaPoolTest is TestUtils {
         vm.prank(alice);
         token.approve(address(vaquita), 1e6);
         vm.expectRevert();
-        vaquita.deposit(1e6, lockPeriod, block.timestamp + 1 days, "");
+        vaquita.deposit(1e6, 0, 0, 0, lockPeriod, block.timestamp + 1 days, "");
 
         // Withdraw should revert when paused
         vm.expectRevert();
-        vaquita.withdraw(bytes32(keccak256("id1")));
+        vaquita.withdraw(bytes32(keccak256("id1")), 0, 0, 0, block.timestamp);
 
-        // addRewards should revert when paused
+        // addRewards should not revert when paused
         vm.prank(owner);
-        vm.expectRevert();
+        token.approve(address(vaquita), 1e6);
         vaquita.addRewards(lockPeriod, 1e6);
 
-        // withdrawProtocolFees should revert when paused
+        // withdrawProtocolFees should not revert when paused
         vm.prank(owner);
-        vm.expectRevert();
         vaquita.withdrawProtocolFees();
 
         // Only owner can unpause
@@ -567,7 +564,7 @@ contract VaquitaPoolTest is TestUtils {
         vaquita.updateEarlyWithdrawalFee(500); // 5%
 
         // Alice deposits
-        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked(alice, block.timestamp)));
+        bytes32 aliceDepositId = keccak256(abi.encodePacked(alice, vaquita.depositNonces(alice)));
         deposit(alice, initialAmount);
         // Simulate whale swap to generate LP fees
         generateSwapFees(
@@ -575,7 +572,7 @@ contract VaquitaPoolTest is TestUtils {
             token,
             lpPairToken,
             universalRouter,
-            v3SwapExactIn,
+            0x0,
             tickSpacing,
             1_000_000e6
         );

@@ -25,7 +25,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
     address public token1;
     IUniversalRouter public universalRouter;
     INonfungiblePositionManager public nonfungiblePositionManager;
-    bytes public commands = abi.encodePacked(bytes1(0));
+    bytes public commands;
     int24 public tickSpacing;
     int24 public tickLower;
     int24 public tickUpper;
@@ -79,6 +79,7 @@ contract VelodromeLiquidityManager is Initializable, OwnableUpgradeable, Pausabl
         isUni = _isUni;
         universalRouter = IUniversalRouter(_universalRouter);
         nonfungiblePositionManager = INonfungiblePositionManager(_nonfungiblePositionManager);
+        commands = abi.encodePacked(bytes1(0));
         IERC20(token0).forceApprove(address(universalRouter), type(uint256).max);
         IERC20(token1).forceApprove(address(universalRouter), type(uint256).max);
         IERC20(token0).forceApprove(address(nonfungiblePositionManager), type(uint256).max);
