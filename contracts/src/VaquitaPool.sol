@@ -48,7 +48,6 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     // Events
     event FundsDeposited(bytes32 indexed depositId, address indexed owner, uint256 amount, uint256 shares);
     event FundsWithdrawn(bytes32 indexed depositId, address indexed owner, uint256 transferAmount, uint256 interest, uint256 reward);
-    event RewardDistributed(bytes32 indexed depositId, address indexed owner, uint256 reward);
     event LockPeriodAdded(uint256 newLockPeriod);
     event EarlyWithdrawalFeeUpdated(uint256 newFee);
     event RewardsAdded(uint256 rewardAmount);
@@ -57,13 +56,10 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     // Errors
     error InvalidAmount();
     error PositionNotFound();
-    error PositionAlreadyWithdrawn();
     error NotPositionOwner();
     error InvalidAddress();
     error InvalidFee();
     error PeriodNotSupported();
-    error InvalidDepositId();
-    error DepositAlreadyExists();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -123,6 +119,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @param deadline The deadline for the permit signature
      * @param signature The permit signature for token approval
      * @return sharesToMint The number of shares minted for this deposit
+     * @dev Emits FundsDeposited event
      */
     function deposit(uint256 amount, uint256 amountOutMin, uint256 amount0Min, uint256 amount1Min, uint256 period, uint256 deadline, bytes memory signature) external nonReentrant whenNotPaused returns (uint256 sharesToMint) {
         if (amount == 0) revert InvalidAmount();
@@ -163,12 +160,15 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @param depositId The ID of the position to withdraw from
      * @param amountOutMin The minimum amount of tokenA to receive
      * @return amountToTransfer The amount of tokenA transferred to the user
+     * @dev Emits FundsWithdrawn event
+     * @dev Emits ProtocolFeesAdded event
      */
     function withdraw(bytes32 depositId, uint256 amountOutMin, uint256 amount0Min, uint256 amount1Min, uint256 deadline) external nonReentrant whenNotPaused returns (uint256 amountToTransfer) {
         Position storage position = positions[depositId];
         if (position.owner == address(0)) revert PositionNotFound();
         if (position.owner != msg.sender) revert NotPositionOwner();
 
+        // Remove position
         position.owner = address(0);
 
         uint256 period = position.lockPeriod;
@@ -213,6 +213,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
 
     /**
      * @notice Withdraw protocol fees to the contract owner
+     * @dev Emits ProtocolFeesWithdrawn event
      */
     function withdrawProtocolFees() external onlyOwner {
         uint256 cacheProtocolFees = protocolFees;
@@ -225,6 +226,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @notice Add rewards to the reward pool (owner only)
      * @param period The lock period to add rewards to
      * @param rewardAmount The amount of rewards to add
+     * @dev Emits RewardsAdded event
      */
     function addRewards(uint256 period, uint256 rewardAmount) external onlyOwner {
         if (!isSupportedLockPeriod[period]) revert PeriodNotSupported();
@@ -236,6 +238,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     /**
      * @notice Update the early withdrawal fee (owner only)
      * @param newFee The new fee in basis points (0-10000)
+     * @dev Emits EarlyWithdrawalFeeUpdated event
      */
     function updateEarlyWithdrawalFee(uint256 newFee) external onlyOwner {
         if (newFee > BASIS_POINTS) revert InvalidFee();
@@ -247,6 +250,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @notice Add a new lock period to the supported list.
      * @dev Only callable by the contract owner.
      * @param newLockPeriod The new lock period in seconds.
+     * @dev Emits LockPeriodAdded event
      */
     function addLockPeriod(uint256 newLockPeriod) external onlyOwner {
         require(!isSupportedLockPeriod[newLockPeriod], "Lock period already supported");
