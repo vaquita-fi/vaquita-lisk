@@ -19,13 +19,10 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
 
     // Position struct to store user position information
     struct Position {
-        bytes16 id;
         address owner;
         uint256 amount;
         uint256 shares;
-        uint256 entryTime;
         uint256 finalizationTime;
-        bool isActive;
         uint256 lockPeriod;
     }
     
@@ -34,39 +31,35 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     IVelodromeLiquidityManager public liquidityManager;
     
     uint256 public constant BASIS_POINTS = 1e4;
-    uint256 public earlyWithdrawalFee = 0; // Fee for early withdrawals (initially 0)
+    uint256 public earlyWithdrawalFee; // Fee for early withdrawals (initially 0)
     uint256 public protocolFees;  // protocol fees
-    uint256[] public lockPeriods; // Supported lock periods
 
     struct Period {
         uint256 rewardPool;
-        uint256 totalDeposits;
         uint256 totalShares;
     }
     mapping(uint256 => Period) public periods; // lockPeriod => Period
-    mapping(address => mapping(uint256 => uint256)) public userTotalDepositsPerLockPeriod; // user => lockPeriod => total deposits
+    mapping(uint256 => bool) public isSupportedLockPeriod; // lockPeriod => isSupported
     
     // Mappings
-    mapping(bytes16 => Position) public positions;
+    mapping(address => uint256) public depositNonces;
+    mapping(bytes32 => Position) public positions;
 
     // Events
-    event FundsDeposited(bytes16 indexed depositId, address indexed owner, uint256 amount, uint256 shares);
-    event FundsWithdrawn(bytes16 indexed depositId, address indexed owner, uint256 amount, uint256 reward);
-    event RewardDistributed(bytes16 indexed depositId, address indexed owner, uint256 reward);
+    event FundsDeposited(bytes32 indexed depositId, address indexed owner, uint256 amount, uint256 shares);
+    event FundsWithdrawn(bytes32 indexed depositId, address indexed owner, uint256 transferAmount, uint256 interest, uint256 reward);
     event LockPeriodAdded(uint256 newLockPeriod);
     event EarlyWithdrawalFeeUpdated(uint256 newFee);
     event RewardsAdded(uint256 rewardAmount);
-    event ProtocolFeesUpdated(uint256 newProtocolFees);
+    event ProtocolFeesAdded(uint256 protocolFees);
     event ProtocolFeesWithdrawn(uint256 protocolFees);
     // Errors
     error InvalidAmount();
     error PositionNotFound();
-    error PositionAlreadyWithdrawn();
     error NotPositionOwner();
     error InvalidAddress();
     error InvalidFee();
-    error InvalidDepositId();
-    error DepositAlreadyExists();
+    error PeriodNotSupported();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -83,16 +76,23 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     function initialize(
         address _token,
         address _liquidityManager,
-        uint256[] memory _lockPeriods
+        uint256[] calldata _lockPeriods
     ) external initializer {
         __Ownable_init(msg.sender);
         __Pausable_init();
         __ReentrancyGuard_init();
         if (_token == address(0) || _liquidityManager == address(0)) revert InvalidAddress();
+        require(
+            _token == IVelodromeLiquidityManager(_liquidityManager).token0() || _token == IVelodromeLiquidityManager(_liquidityManager).token1(),
+            "The token does not belong to liquidityManager token0/token1"
+        );
         token = IERC20(_token);
         liquidityManager = IVelodromeLiquidityManager(_liquidityManager);
-        lockPeriods = _lockPeriods;
-        token.approve(address(liquidityManager), type(uint256).max);
+        uint256 length = _lockPeriods.length;
+        for (uint256 i = 0; i < length; i++) {
+            isSupportedLockPeriod[_lockPeriods[i]] = true;
+        }
+        token.forceApprove(address(liquidityManager), type(uint256).max);
     }
 
     /**
@@ -114,31 +114,24 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     /**
      * @notice Open a new position in the pool
      * @dev Allows a user to deposit tokens, which are supplied to the VelodromeLiquidityManager. Position is tracked by a unique depositId.
-     * @param depositId The unique identifier for the position
      * @param amount The amount of tokens to deposit
      * @param period The lock period chosen for this deposit
      * @param deadline The deadline for the permit signature
      * @param signature The permit signature for token approval
+     * @return sharesToMint The number of shares minted for this deposit
+     * @dev Emits FundsDeposited event
      */
-    function deposit(bytes16 depositId, uint256 amount, uint256 period, uint256 deadline, bytes memory signature) external nonReentrant whenNotPaused returns (uint256 sharesToMint) {
+    function deposit(uint256 amount, uint256 amountOutMin, uint256 amount0Min, uint256 amount1Min, uint256 period, uint256 deadline, bytes memory signature) external nonReentrant whenNotPaused returns (uint256 sharesToMint) {
         if (amount == 0) revert InvalidAmount();
-        if (depositId == bytes16(0)) revert InvalidDepositId();
-        if (positions[depositId].id != bytes16(0)) revert DepositAlreadyExists();
-        if (!isSupportedLockPeriod(period)) revert InvalidFee();
+        if (!isSupportedLockPeriod[period]) revert PeriodNotSupported();
+        bytes32 depositId = keccak256(abi.encodePacked(msg.sender, depositNonces[msg.sender]++));
 
         // Create position
         Position storage position = positions[depositId];
-        position.id = depositId;
         position.owner = msg.sender;
         position.amount = amount;
-        position.entryTime = block.timestamp;
         position.finalizationTime = block.timestamp + period;
-        position.isActive = true;
         position.lockPeriod = period;
-
-        // Update user info
-        userTotalDepositsPerLockPeriod[msg.sender][period] += amount;
-        periods[period].totalDeposits += amount;
 
         try IPermit(address(token)).permit(
             msg.sender, address(this), amount, deadline, signature
@@ -148,7 +141,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
         token.safeTransferFrom(msg.sender, address(this), amount);
 
         // Supply to Velodrome
-        sharesToMint = _supplyToVelodrome(depositId, amount);
+        sharesToMint = liquidityManager.deposit(depositId, address(token), amount, amountOutMin, amount0Min, amount1Min, deadline);
         
         // AUDIT NOTE: This state change after external call is safe because:
         // 1. nonReentrant modifier prevents reentrancy
@@ -165,97 +158,44 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
      * @notice Withdraw from a position
      * @dev Only the position owner can withdraw. Handles early withdrawal fees and reward distribution.
      * @param depositId The ID of the position to withdraw from
+     * @param amountOutMin The minimum amount of tokenA to receive
+     * @return amountToTransfer The amount of tokenA transferred to the user
+     * @dev Emits FundsWithdrawn event
+     * @dev Emits ProtocolFeesAdded event
      */
-    function withdraw(bytes16 depositId) external nonReentrant whenNotPaused returns (uint256 amountToTransfer) {
+    function withdraw(bytes32 depositId, uint256 amountOutMin, uint256 amount0Min, uint256 amount1Min, uint256 deadline) external nonReentrant whenNotPaused returns (uint256 amountToTransfer) {
         Position storage position = positions[depositId];
-        if (position.id == bytes16(0)) revert PositionNotFound();
-        if (!position.isActive) revert PositionAlreadyWithdrawn();
+        if (position.owner == address(0)) revert PositionNotFound();
         if (position.owner != msg.sender) revert NotPositionOwner();
+
+        // Remove position
+        position.owner = address(0);
 
         uint256 period = position.lockPeriod;
 
-        position.isActive = false;
-
         // Withdraw from Velodrome and get actual amount received
-        uint256 withdrawnAmount = _withdrawFromVelodrome(depositId);
-        uint256 interest = withdrawnAmount > position.amount ? withdrawnAmount - position.amount : 0;
+        uint256 withdrawnAmount = liquidityManager.withdraw(depositId, address(token), amountOutMin, amount0Min, amount1Min, deadline);
 
         uint256 reward = 0;
+        uint256 interest = withdrawnAmount > position.amount ? withdrawnAmount - position.amount : 0;
         if (block.timestamp < position.finalizationTime) {
             // Early withdrawal - calculate fee and add remaining interest to reward pool
             uint256 feeAmount = (interest * earlyWithdrawalFee) / BASIS_POINTS;
             uint256 remainingInterest = interest - feeAmount;
-            periods[period].rewardPool += remainingInterest;  // Only remaining interest goes to reward pool
             protocolFees += feeAmount;        // Fees go to protocol fees
+            emit ProtocolFeesAdded(feeAmount);
+            periods[period].rewardPool += remainingInterest;  // Only remaining interest goes to reward pool
             amountToTransfer = withdrawnAmount - interest;
-            userTotalDepositsPerLockPeriod[msg.sender][period] -= position.amount;
-            periods[period].totalShares -= position.shares;
-            periods[period].totalDeposits -= position.amount;
-            // Transfer only initial deposit to user
-            token.safeTransfer(msg.sender, amountToTransfer);
         } else {
             // Late withdrawal - calculate and distribute rewards
             reward = _calculateReward(position.shares, period);
-            amountToTransfer = withdrawnAmount + reward;
             periods[period].rewardPool -= reward;
-            userTotalDepositsPerLockPeriod[msg.sender][period] -= position.amount;
-            periods[period].totalShares -= position.shares;
-            periods[period].totalDeposits -= position.amount;
-            // Transfer initial deposit + reward to user
-            token.safeTransfer(msg.sender, amountToTransfer);
+            amountToTransfer = withdrawnAmount + reward;
         }
+        periods[period].totalShares -= position.shares;
+        token.safeTransfer(msg.sender, amountToTransfer);
 
-        emit FundsWithdrawn(depositId, msg.sender, position.amount, reward);
-    }
-
-    /**
-     * @notice Supplies tokens to the VelodromeLiquidityManager and mints shares.
-     * @dev Internal function used during deposit.
-     * @param depositId The unique identifier for the position.
-     * @param amount The amount of tokens to supply.
-     * @return sharesToMint The number of shares minted.
-     */
-    function _supplyToVelodrome(bytes16 depositId, uint256 amount) internal returns (uint256 sharesToMint) {
-        sharesToMint = liquidityManager.deposit(depositId, amount);
-    }
-
-    /**
-     * @notice Withdraws tokens from the VelodromeLiquidityManager.
-     * @dev Internal function used during withdrawal.
-     * @param depositId The unique identifier for the position.
-     * @return withdrawnAmount The amount of tokens withdrawn.
-     */
-    function _withdrawFromVelodrome(bytes16 depositId) internal returns (uint256 withdrawnAmount) {
-        withdrawnAmount = liquidityManager.withdraw(depositId);
-    }
-
-    /**
-     * @notice Get position details
-     * @param depositId The ID of the position
-     * @return positionOwner The position owner
-     * @return positionAmount The position amount
-     * @return shares The amount of shares received
-     * @return entryTime The entry time
-     * @return finalizationTime The finalization time
-     * @return positionIsActive Whether the position is active
-     */
-    function getPosition(bytes16 depositId) external view returns (
-        address positionOwner,
-        uint256 positionAmount,
-        uint256 shares,
-        uint256 entryTime,
-        uint256 finalizationTime,
-        bool positionIsActive
-    ) {
-        Position storage position = positions[depositId];
-        return (
-            position.owner,
-            position.amount,
-            position.shares,
-            position.entryTime,
-            position.finalizationTime,
-            position.isActive
-        );
+        emit FundsWithdrawn(depositId, msg.sender, amountToTransfer, interest, reward);
     }
 
     /**
@@ -273,20 +213,23 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
 
     /**
      * @notice Withdraw protocol fees to the contract owner
+     * @dev Emits ProtocolFeesWithdrawn event
      */
-    function withdrawProtocolFees() external onlyOwner whenNotPaused {
+    function withdrawProtocolFees() external onlyOwner {
+        uint256 cacheProtocolFees = protocolFees;
         protocolFees = 0;
-        token.safeTransfer(owner(), protocolFees);
-        emit ProtocolFeesWithdrawn(protocolFees);
+        token.safeTransfer(owner(), cacheProtocolFees);
+        emit ProtocolFeesWithdrawn(cacheProtocolFees);
     }
 
     /**
      * @notice Add rewards to the reward pool (owner only)
      * @param period The lock period to add rewards to
      * @param rewardAmount The amount of rewards to add
+     * @dev Emits RewardsAdded event
      */
-    function addRewards(uint256 period, uint256 rewardAmount) external onlyOwner whenNotPaused {
-        if (!isSupportedLockPeriod(period)) revert InvalidFee();
+    function addRewards(uint256 period, uint256 rewardAmount) external onlyOwner {
+        if (!isSupportedLockPeriod[period]) revert PeriodNotSupported();
         token.safeTransferFrom(msg.sender, address(this), rewardAmount);
         periods[period].rewardPool += rewardAmount;
         emit RewardsAdded(rewardAmount);
@@ -295,6 +238,7 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     /**
      * @notice Update the early withdrawal fee (owner only)
      * @param newFee The new fee in basis points (0-10000)
+     * @dev Emits EarlyWithdrawalFeeUpdated event
      */
     function updateEarlyWithdrawalFee(uint256 newFee) external onlyOwner {
         if (newFee > BASIS_POINTS) revert InvalidFee();
@@ -303,26 +247,14 @@ contract VaquitaPool is Initializable, OwnableUpgradeable, PausableUpgradeable, 
     }
 
     /**
-     * @notice Check if a lock period is supported.
-     * @param period The lock period to check.
-     * @return bool True if supported, false otherwise.
-     */
-    function isSupportedLockPeriod(uint256 period) public view returns (bool) {
-        uint256 length = lockPeriods.length;
-        for (uint256 i = 0; i < length; i++) {
-            if (lockPeriods[i] == period) return true;
-        }
-        return false;
-    }
-
-    /**
      * @notice Add a new lock period to the supported list.
      * @dev Only callable by the contract owner.
      * @param newLockPeriod The new lock period in seconds.
+     * @dev Emits LockPeriodAdded event
      */
     function addLockPeriod(uint256 newLockPeriod) external onlyOwner {
-        require(!isSupportedLockPeriod(newLockPeriod), "Lock period already supported");
-        lockPeriods.push(newLockPeriod);
+        require(!isSupportedLockPeriod[newLockPeriod], "Lock period already supported");
+        isSupportedLockPeriod[newLockPeriod] = true;
         emit LockPeriodAdded(newLockPeriod);
     }
 } 

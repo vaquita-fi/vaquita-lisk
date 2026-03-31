@@ -1,19 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
+import "forge-std/Test.sol";
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {VelodromeLiquidityManager, Deposit} from "../src/VelodromeLiquidityManager.sol";
+import {VelodromeLiquidityManager} from "../src/VelodromeLiquidityManager.sol";
 import {INonfungiblePositionManager} from "../src/interfaces/external/INonFungiblePositionManager.sol";
 import {IUniversalRouter} from "../src/interfaces/external/IUniversalRouter.sol";
 import {TestUtils} from "./TestUtils.sol";
+import {IVelodromeLiquidityManager} from "../src/interfaces/IVelodromeLiquidityManager.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
-contract VelodromeLiquidityManagerTest is Test, TestUtils {
+contract VelodromeLiquidityManagerTest is TestUtils {
     VelodromeLiquidityManager public liquidityManager;
-    IERC20 public tokenA;
-    IERC20 public tokenB;
+    IERC20 public token0;
+    IERC20 public token1;
     address public universalRouter;
     address public positionManager;
     address public whale;
@@ -24,14 +27,12 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
     address public charlie;
     address public dave;
 
-    // Real Lisk mainnet addresses from VelodromeLiquidityManager.s.sol
-    address constant TOKEN_A_ADDRESS = 0xF242275d3a6527d877f2c927a82D9b057609cc71;
-    address constant TOKEN_B_ADDRESS = 0x05D032ac25d322df992303dCa074EE7392C117b9;
+    address constant TOKEN_0_ADDRESS = 0x05D032ac25d322df992303dCa074EE7392C117b9;
+    address constant TOKEN_1_ADDRESS = 0xF242275d3a6527d877f2c927a82D9b057609cc71;
     address constant UNIVERSAL_ROUTER_ADDRESS = 0x652e53C6a4FE39B6B30426d9c96376a105C89A95;
     address constant POSITION_MANAGER_ADDRESS = 0x991d5546C4B442B4c5fdc4c8B8b8d131DEB24702;
-    address constant TOKEN_A_WHALE = 0xC859c755E8C0568fD86F7860Bcf9A59D6F57BEB5;
+    address constant TOKEN_1_WHALE = 0xC859c755E8C0568fD86F7860Bcf9A59D6F57BEB5;
 
-    uint8 public v3SwapExactIn = 0x00;
     int24 public tickSpacing = 1;
     int24 public tickLower = 3;
     int24 public tickUpper = 6;
@@ -43,11 +44,11 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         vm.createSelectFork(vm.rpcUrl("lisk"), liskForkBlock);
 
         // Assign real contract addresses
-        tokenA = IERC20(TOKEN_A_ADDRESS);
-        tokenB = IERC20(TOKEN_B_ADDRESS);
+        token0 = IERC20(TOKEN_0_ADDRESS);
+        token1 = IERC20(TOKEN_1_ADDRESS);
         universalRouter = UNIVERSAL_ROUTER_ADDRESS;
         positionManager = POSITION_MANAGER_ADDRESS;
-        whale = TOKEN_A_WHALE;
+        whale = TOKEN_1_WHALE;
         owner = address(this);
 
         // Create test users
@@ -55,48 +56,55 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         bob = address(0xB0B);
         charlie = makeAddr("charlie");
         dave = makeAddr("dave");
-        // Impersonate whale and transfer TokenA to alice and bob
+        // Impersonate whale and transfer token1 to alice and bob
         uint256 transferAmount = 100_000 * 1e6; // Adjust decimals as needed
         uint256 transferAmount2 = 1_000 * 1e6;
         vm.startPrank(whale);
-        tokenA.transfer(alice, transferAmount);
-        tokenA.transfer(bob, transferAmount);
-        tokenA.transfer(charlie, transferAmount2);
-        tokenA.transfer(dave, transferAmount2);
+        token1.transfer(alice, transferAmount);
+        token1.transfer(bob, transferAmount);
+        token1.transfer(charlie, transferAmount2);
+        token1.transfer(dave, transferAmount2);
         vm.stopPrank();
 
-        // Deploy VelodromeLiquidityManager with real addresses and parameters
-        liquidityManager = new VelodromeLiquidityManager();
-        liquidityManager.initialize(
-            address(tokenA),
-            address(tokenB),
-            universalRouter,
-            positionManager,
-            v3SwapExactIn,
+        // Deploy liquidity manager implementation and proxy
+        VelodromeLiquidityManager liquidityManagerImpl = new VelodromeLiquidityManager();
+        bytes memory liquidityManagerInitData = abi.encodeWithSelector(
+            liquidityManagerImpl.initialize.selector,
+            address(token0),
+            address(token1),
+            address(universalRouter),
+            address(positionManager),
             tickSpacing,
             tickLower,
-            tickUpper
+            tickUpper,
+            false
         );
+        TransparentUpgradeableProxy liquidityManagerProxy = new TransparentUpgradeableProxy(
+            address(liquidityManagerImpl),
+            owner,
+            liquidityManagerInitData
+        );
+        liquidityManager = VelodromeLiquidityManager(address(liquidityManagerProxy));
     }
 
     function deposit(
         address user,
-        bytes16 depositId,
+        bytes32 depositId,
         uint256 depositAmount
     ) public returns (uint256) {
         vm.startPrank(user);
-        tokenA.approve(address(liquidityManager), depositAmount);
-        liquidityManager.deposit(depositId, depositAmount);
+        token1.approve(address(liquidityManager), depositAmount);
+        liquidityManager.deposit(depositId, address(token1), depositAmount, 0, 0, 0, block.timestamp);
         vm.stopPrank();
         return 0;
     }
 
     function withdraw(
         address user,
-        bytes16 depositId
+        bytes32 depositId
     ) public returns (uint256) {
         vm.startPrank(user);
-        liquidityManager.withdraw(depositId);
+        liquidityManager.withdraw(depositId, address(token1), 0, 0, 0, block.timestamp);
         vm.stopPrank();
         return 0;
     }
@@ -104,88 +112,87 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
     function test_DepositCreatesDepositRecord() public {
         // Arrange
         uint256 depositAmount = 10 * 1e6; // Adjust decimals as needed
-        bytes16 depositId = bytes16(keccak256(abi.encodePacked("testDeposit", block.timestamp)));
+        bytes32 depositId = bytes32(keccak256(abi.encodePacked("testDeposit", block.timestamp)));
 
         // Act
         deposit(alice, depositId, depositAmount);
 
         // Assert
-        Deposit memory dep = liquidityManager.getUserDeposit(alice, depositId);
-        assertEq(dep.id, depositId, "Deposit ID mismatch");
-        assertGt(dep.shares, 0, "Shares should be > 0");
-        assertGt(dep.amount0Contributed + dep.amount1Contributed, 0, "Amounts should be > 0");
+        (uint256 shares,,,bool isActive) = liquidityManager.userDepositDetails(alice, depositId);
+        assertGt(shares, 0, "Shares should be > 0");
+        assertEq(isActive, true, "Deposit should be active");
     }
 
-    function test_WithdrawReturnsTokenAAndDepositIsInactive() public {
+    function test_WithdrawReturnsToken1AndDepositIsInactive() public {
         // Arrange
         uint256 depositAmount = 10 * 1e6; // Adjust decimals as needed
-        bytes16 depositId = bytes16(keccak256(abi.encodePacked("testWithdraw", block.timestamp)));
+        bytes32 depositId = bytes32(keccak256(abi.encodePacked("testWithdraw", block.timestamp)));
         deposit(alice, depositId, depositAmount);
-        uint256 balanceBefore = tokenA.balanceOf(alice);
+        uint256 balanceBefore = token1.balanceOf(alice);
 
         // Act
         withdraw(alice, depositId);
 
         // Assert
-        uint256 balanceAfter = tokenA.balanceOf(alice);
-        assertGt(balanceAfter, balanceBefore, "Should receive TokenA back");
-        Deposit memory dep = liquidityManager.getUserDeposit(alice, depositId);
-        assertEq(dep.isActive, false, "Deposit should be inactive");
+        uint256 balanceAfter = token1.balanceOf(alice);
+        assertGt(balanceAfter, balanceBefore, "Should receive token1 back");
+        (,,, bool isActive) = liquidityManager.userDepositDetails(alice, depositId);
+        assertEq(isActive, false, "Deposit should be inactive");
         // contract address should have no tokens
-        assertEq(tokenA.balanceOf(address(liquidityManager)), 0, "TokenA balance should be 0");
-        assertEq(tokenB.balanceOf(address(liquidityManager)), 0, "TokenB balance should be 0");
+        assertEq(token0.balanceOf(address(liquidityManager)), 0, "token0 balance should be 0");
+        assertEq(token1.balanceOf(address(liquidityManager)), 0, "token1 balance should be 0");
     }
 
     function test_TwoDepositsAndWithdraw() public {
         // Arrange
         uint256 depositAmount = 20 * 1e6; // Adjust decimals as needed
         uint256 depositAmount2 = 10 * 1e6;
-        bytes16 depositId = bytes16(keccak256(abi.encodePacked("testTwoDepositsAndWithdraw", block.timestamp)));
-        bytes16 depositId2 = bytes16(keccak256(abi.encodePacked("testTwoDepositsAndWithdraw2", block.timestamp)));
+        bytes32 depositId = bytes32(keccak256(abi.encodePacked("testTwoDepositsAndWithdraw", block.timestamp)));
+        bytes32 depositId2 = bytes32(keccak256(abi.encodePacked("testTwoDepositsAndWithdraw2", block.timestamp)));
         deposit(alice, depositId, depositAmount);
         deposit(alice, depositId2, depositAmount2);
         withdraw(alice, depositId);
         // second deposit should already exist in liquidityManager contract
-        Deposit memory dep = liquidityManager.getUserDeposit(alice, depositId2);
-        assertEq(dep.shares, liquidityManager.totalShares(), "Deposit should be 20");
+        (uint256 shares,,,) = liquidityManager.userDepositDetails(alice, depositId2);
+        assertEq(shares, liquidityManager.totalShares(), "Deposit should be 20");
     }
 
     function test_CannotDepositWithZeroAmountOrDuplicateId() public {
         uint256 depositAmount = 10 * 1e6;
-        bytes16 depositId = bytes16(keccak256(abi.encodePacked("testZeroOrDuplicate", block.timestamp)));
+        bytes32 depositId = bytes32(keccak256(abi.encodePacked("testZeroOrDuplicate", block.timestamp)));
 
         // Zero amount - call directly, not through TestUtils
         vm.startPrank(alice);
-        tokenA.approve(address(liquidityManager), 0);
-        vm.expectRevert("Deposit amount must be greater than 0");
-        liquidityManager.deposit(depositId, 0);
+        token1.approve(address(liquidityManager), 0);
+        vm.expectRevert("Deposit amountA must be greater than 0");
+        liquidityManager.deposit(depositId, address(token1), 0, 0, 0, 0, block.timestamp);
         vm.stopPrank();
 
         // Normal deposit
         vm.startPrank(alice);
-        tokenA.approve(address(liquidityManager), depositAmount);
-        liquidityManager.deposit(depositId, depositAmount);
+        token1.approve(address(liquidityManager), depositAmount);
+        liquidityManager.deposit(depositId, address(token1), depositAmount, 0, 0, 0, block.timestamp);
         vm.stopPrank();
 
         // Duplicate depositId
         vm.startPrank(alice);
-        tokenA.approve(address(liquidityManager), depositAmount);
+        token1.approve(address(liquidityManager), depositAmount);
         vm.expectRevert("Deposit ID already exists for user");
-        liquidityManager.deposit(depositId, depositAmount);
+        liquidityManager.deposit(depositId, address(token1), depositAmount, 0, 0, 0, block.timestamp);
         vm.stopPrank();
     }
 
     function test_CannotWithdrawNonexistentDeposit() public {
-        bytes16 depositId = bytes16(keccak256(abi.encodePacked("testNonexistent", block.timestamp)));
+        bytes32 depositId = bytes32(keccak256(abi.encodePacked("testNonexistent", block.timestamp)));
         vm.expectRevert("Deposit is not active");
-        liquidityManager.withdraw(depositId);
+        withdraw(alice, depositId);
     }
 
     function test_MultiUserDeposits() public {
         uint256 depositAmount = 10 * 1e6;
-        bytes16 aliceDepositId = bytes16(keccak256(abi.encodePacked("aliceDeposit", block.timestamp)));
-        bytes16 bobDepositId = bytes16(keccak256(abi.encodePacked("bobDeposit", block.timestamp)));
-        bytes16 charlieDepositId = bytes16(keccak256(abi.encodePacked("charlieDeposit", block.timestamp)));
+        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked("aliceDeposit", block.timestamp)));
+        bytes32 bobDepositId = bytes32(keccak256(abi.encodePacked("bobDeposit", block.timestamp)));
+        bytes32 charlieDepositId = bytes32(keccak256(abi.encodePacked("charlieDeposit", block.timestamp)));
         // Alice deposit
         deposit(alice, aliceDepositId, depositAmount);
         // Bob deposit
@@ -194,26 +201,26 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         deposit(charlie, charlieDepositId, depositAmount);
 
         // Assert both have deposits
-        Deposit memory depAlice = liquidityManager.getUserDeposit(alice, aliceDepositId);
-        Deposit memory depBob = liquidityManager.getUserDeposit(bob, bobDepositId);
-        Deposit memory depCharlie = liquidityManager.getUserDeposit(charlie, charlieDepositId);
-        assertGt(depAlice.shares, 0, "Alice shares should be > 0");
-        assertGt(depBob.shares, 0, "Bob shares should be > 0");
-        assertGt(depCharlie.shares, 0, "Charlie shares should be > 0");
+        (uint256 sharesAlice,,,) = liquidityManager.userDepositDetails(alice, aliceDepositId);
+        (uint256 sharesBob,,,) = liquidityManager.userDepositDetails(bob, bobDepositId);
+        (uint256 sharesCharlie,,,) = liquidityManager.userDepositDetails(charlie, charlieDepositId);
+        assertGt(sharesAlice, 0, "Alice shares should be > 0");
+        assertGt(sharesBob, 0, "Bob shares should be > 0");
+        assertGt(sharesCharlie, 0, "Charlie shares should be > 0");
         uint256 positionTokenId = liquidityManager.positionTokenId();
         (,,,,,,,uint256 liquidity,,,,) = INonfungiblePositionManager(positionManager).positions(positionTokenId);
-        assertEq(liquidity, depAlice.shares + depBob.shares + depCharlie.shares, "Liquidity should be equal");
+        assertEq(liquidity, sharesAlice + sharesBob + sharesCharlie, "Liquidity should be equal");
     }
 
     function test_MultiUserWithdraw() public {
         uint256 aliceDepositAmount = 100_000 * 1e6;
         uint256 bobDepositAmount = 100_000 * 1e6;
-        bytes16 aliceDepositId = bytes16(keccak256(abi.encodePacked("aliceDeposit", block.timestamp)));
+        bytes32 aliceDepositId = bytes32(keccak256(abi.encodePacked("aliceDeposit", block.timestamp)));
         console.log("Alice depositId");
-        console.logBytes16(aliceDepositId);
-        bytes16 bobDepositId = bytes16(keccak256(abi.encodePacked("bobDeposit", block.timestamp)));
+        console.logBytes32(aliceDepositId);
+        bytes32 bobDepositId = bytes32(keccak256(abi.encodePacked("bobDeposit", block.timestamp)));
         console.log("Bob depositId");
-        console.logBytes16(bobDepositId);
+        console.logBytes32(bobDepositId);
         // Alice deposit
         uint256 aliceShares = deposit(alice, aliceDepositId, aliceDepositAmount);
         console.log("Alice shares:", aliceShares);
@@ -224,10 +231,10 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // whale swaps USDC.e to USDT
         generateSwapFees(
             whale,
-            tokenA,
-            tokenB,
+            token1,
+            token0,
             universalRouter,
-            v3SwapExactIn,
+            0x0,
             tickSpacing,
             1000_000e6
         );
@@ -244,10 +251,10 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // Bob withdraw
         withdraw(bob, bobDepositId);
         // Assert both have no deposits
-        Deposit memory depAlice = liquidityManager.getUserDeposit(alice, aliceDepositId);
-        Deposit memory depBob = liquidityManager.getUserDeposit(bob, bobDepositId);
-        assertEq(depAlice.isActive, false, "Alice deposit should be inactive");
-        assertEq(depBob.isActive, false, "Bob deposit should be inactive");
+        (,,, bool isActiveAlice) = liquidityManager.userDepositDetails(alice, aliceDepositId);
+        (,,, bool isActiveBob) = liquidityManager.userDepositDetails(bob, bobDepositId);
+        assertEq(isActiveAlice, false, "Alice deposit should be inactive");
+        assertEq(isActiveBob, false, "Bob deposit should be inactive");
         (,,,,,,,liquidity,,,,) = INonfungiblePositionManager(positionManager).positions(positionTokenId);
         assertEq(liquidity, 0, "Liquidity should be 0");
     }
@@ -261,13 +268,13 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         uint256 depositAmountC1 = 12 * 1e6;
         uint256 depositAmountD1 = 14 * 1e6;
         // Unique deposit IDs
-        bytes16 aliceDeposit1 = bytes16(keccak256(abi.encodePacked("aliceDeposit1", block.timestamp)));
-        bytes16 aliceDeposit2 = bytes16(keccak256(abi.encodePacked("aliceDeposit2", block.timestamp)));
-        bytes16 bobDeposit1 = bytes16(keccak256(abi.encodePacked("bobDeposit1", block.timestamp)));
-        bytes16 bobDeposit2 = bytes16(keccak256(abi.encodePacked("bobDeposit2", block.timestamp)));
-        bytes16 bobDeposit3 = bytes16(keccak256(abi.encodePacked("bobDeposit3", block.timestamp)));
-        bytes16 charlieDeposit1 = bytes16(keccak256(abi.encodePacked("charlieDeposit1", block.timestamp)));
-        bytes16 daveDeposit1 = bytes16(keccak256(abi.encodePacked("daveDeposit1", block.timestamp)));
+        bytes32 aliceDeposit1 = bytes32(keccak256(abi.encodePacked("aliceDeposit1", block.timestamp)));
+        bytes32 aliceDeposit2 = bytes32(keccak256(abi.encodePacked("aliceDeposit2", block.timestamp)));
+        bytes32 bobDeposit1 = bytes32(keccak256(abi.encodePacked("bobDeposit1", block.timestamp)));
+        bytes32 bobDeposit2 = bytes32(keccak256(abi.encodePacked("bobDeposit2", block.timestamp)));
+        bytes32 bobDeposit3 = bytes32(keccak256(abi.encodePacked("bobDeposit3", block.timestamp)));
+        bytes32 charlieDeposit1 = bytes32(keccak256(abi.encodePacked("charlieDeposit1", block.timestamp)));
+        bytes32 daveDeposit1 = bytes32(keccak256(abi.encodePacked("daveDeposit1", block.timestamp)));
         // 1. Alice deposits first
         deposit(alice, aliceDeposit1, depositAmountA1);
 
@@ -276,7 +283,7 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
 
         // 3. Bob deposits first
         vm.startPrank(bob);
-        tokenA.approve(address(liquidityManager), depositAmountB1);
+        token1.approve(address(liquidityManager), depositAmountB1);
         deposit(bob, bobDeposit1, depositAmountB1);
         vm.stopPrank();
 
@@ -286,8 +293,8 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // 5. Alice withdraws first
         withdraw(alice, aliceDeposit1);
         // Assert Alice deposit1 is inactive
-        Deposit memory depA1 = liquidityManager.getUserDeposit(alice, aliceDeposit1);
-        assertEq(depA1.isActive, false, "Alice deposit1 should be inactive");
+        (,,, bool isActiveA1) = liquidityManager.userDepositDetails(alice, aliceDeposit1);
+        assertEq(isActiveA1, false, "Alice deposit1 should be inactive");
 
         // 6. Charlie deposits first
         deposit(charlie, charlieDeposit1, depositAmountC1);
@@ -298,32 +305,32 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // 8. Alice withdraws second
         withdraw(alice, aliceDeposit2);
         // Assert Alice deposit2 is inactive
-        Deposit memory depA2 = liquidityManager.getUserDeposit(alice, aliceDeposit2);
-        assertEq(depA2.isActive, false, "Alice deposit2 should be inactive");
+        (,,, bool isActiveA2) = liquidityManager.userDepositDetails(alice, aliceDeposit2);
+        assertEq(isActiveA2, false, "Alice deposit2 should be inactive");
 
         // 9. Bob withdraws third
         withdraw(bob, bobDeposit3);
         // Assert Bob deposit3 is inactive
-        Deposit memory depB3 = liquidityManager.getUserDeposit(bob, bobDeposit3);
-        assertEq(depB3.isActive, false, "Bob deposit3 should be inactive");
+        (,,, bool isActiveB3) = liquidityManager.userDepositDetails(bob, bobDeposit3);
+        assertEq(isActiveB3, false, "Bob deposit3 should be inactive");
 
         // 10. Bob withdraws second
         withdraw(bob, bobDeposit2);
         // Assert Bob deposit2 is inactive
-        Deposit memory depB2 = liquidityManager.getUserDeposit(bob, bobDeposit2);
-        assertEq(depB2.isActive, false, "Bob deposit2 should be inactive");
+        (,,, bool isActiveB2) = liquidityManager.userDepositDetails(bob, bobDeposit2);
+        assertEq(isActiveB2, false, "Bob deposit2 should be inactive");
 
         // 11. Bob withdraws first
         withdraw(bob, bobDeposit1);
         // Assert Bob deposit1 is inactive
-        Deposit memory depB1 = liquidityManager.getUserDeposit(bob, bobDeposit1);
-        assertEq(depB1.isActive, false, "Bob deposit1 should be inactive");
+        (,,, bool isActiveB1) = liquidityManager.userDepositDetails(bob, bobDeposit1);
+        assertEq(isActiveB1, false, "Bob deposit1 should be inactive");
 
         // 12. Charlie withdraws first
         withdraw(charlie, charlieDeposit1);
         // Assert Charlie deposit1 is inactive
-        Deposit memory depC1 = liquidityManager.getUserDeposit(charlie, charlieDeposit1);
-        assertEq(depC1.isActive, false, "Charlie deposit1 should be inactive");
+        (,,, bool isActiveC1) = liquidityManager.userDepositDetails(charlie, charlieDeposit1);
+        assertEq(isActiveC1, false, "Charlie deposit1 should be inactive");
 
         // 13. Dave deposits first
         deposit(dave, daveDeposit1, depositAmountD1);
@@ -331,12 +338,12 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // 14. Dave withdraws first
         withdraw(dave, daveDeposit1);
 
-        Deposit memory depD1 = liquidityManager.getUserDeposit(dave, daveDeposit1);
-        assertEq(depD1.isActive, false, "Dave deposit1 should be inactive");
+        (,,, bool isActiveD1) = liquidityManager.userDepositDetails(dave, daveDeposit1);
+        assertEq(isActiveD1, false, "Dave deposit1 should be inactive");
 
         // 15. Verify nothing is left in the contract
-        assertEq(tokenA.balanceOf(address(liquidityManager)), 0, "TokenA balance should be 0");
-        assertEq(tokenB.balanceOf(address(liquidityManager)), 0, "TokenB balance should be 0");
+        assertEq(token0.balanceOf(address(liquidityManager)), 0, "token0 balance should be 0");
+        assertEq(token1.balanceOf(address(liquidityManager)), 0, "token1 balance should be 0");
     }
 
     function test_PauseAndUnpause() public {
@@ -353,12 +360,12 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // Deposit should revert when paused
         vm.prank(alice);
         vm.expectRevert();
-        liquidityManager.deposit(bytes16(keccak256("id1")), 1e6);
+        liquidityManager.deposit(bytes32(keccak256("id1")), address(token1), 1e6, 0, 0, 0, block.timestamp);
 
         // Withdraw should revert when paused
         vm.prank(alice);
         vm.expectRevert();
-        liquidityManager.withdraw(bytes16(keccak256("id1")));
+        liquidityManager.withdraw(bytes32(keccak256("id1")), address(token1), 0, 0, 0, block.timestamp);
 
         // Only owner can unpause
         vm.prank(alice);
@@ -375,24 +382,22 @@ contract VelodromeLiquidityManagerTest is Test, TestUtils {
         // Arrange
         uint256 depositAmount1 = 10 * 1e6;
         uint256 depositAmount2 = 20 * 1e6;
-        bytes16 depositId1 = bytes16(keccak256(abi.encodePacked("getUserDepositIds1", block.timestamp, "a")));
-        bytes16 depositId2 = bytes16(keccak256(abi.encodePacked("getUserDepositIds2", block.timestamp, "b")));
+        bytes32 depositId1 = bytes32(keccak256(abi.encodePacked("getUserDepositIds1", block.timestamp, "a")));
+        bytes32 depositId2 = bytes32(keccak256(abi.encodePacked("getUserDepositIds2", block.timestamp, "b")));
+        bytes32[] memory depositIds = new bytes32[](2);
+        depositIds[0] = depositId1;
+        depositIds[1] = depositId2;
 
         // Act
-        deposit(alice, depositId1, depositAmount1);
-        deposit(alice, depositId2, depositAmount2);
+        vm.startPrank(alice);
+        token1.approve(address(liquidityManager), depositAmount1 + depositAmount2);
+        vm.expectEmit(true, true, false, false);
+        emit IVelodromeLiquidityManager.FundsDeposited(alice, depositId1, 0, 0, 0);
+        liquidityManager.deposit(depositId1, address(token1), depositAmount1, 0, 0, 0, block.timestamp);
 
-        // Assert
-        bytes16[] memory ids = liquidityManager.getUserDepositIds(alice);
-        assertEq(ids.length, 2, "Should have 2 deposit IDs");
-        assertEq(ids[0], depositId1, "First depositId mismatch");
-        assertEq(ids[1], depositId2, "Second depositId mismatch");
-
-        // Withdraw one and check IDs remain (withdraw does not remove from getUserDepositIds)
-        withdraw(alice, depositId1);
-        bytes16[] memory idsAfterWithdraw = liquidityManager.getUserDepositIds(alice);
-        assertEq(idsAfterWithdraw.length, 2, "IDs array length should remain after withdraw");
-        assertEq(idsAfterWithdraw[0], depositId1, "First depositId mismatch after withdraw");
-        assertEq(idsAfterWithdraw[1], depositId2, "Second depositId mismatch after withdraw");
+        vm.expectEmit(true, true, false, false);
+        emit IVelodromeLiquidityManager.FundsDeposited(alice, depositId2, 0, 0, 0);
+        liquidityManager.deposit(depositId2, address(token1), depositAmount2, 0, 0, 0, block.timestamp);
+        vm.stopPrank();
     }
 }

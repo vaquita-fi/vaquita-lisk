@@ -21,21 +21,21 @@ abstract contract TestUtils is Test {
         // Impersonate whale and perform a swap to generate fees
         vm.startPrank(whale);
         tokenA.approve(universalRouter, swapAmount);
-        uint256 whaleUSDCBefore = tokenA.balanceOf(whale);
-        uint256 whaleUSDTBefore = tokenB.balanceOf(whale);
-        console.log("Whale USDC.e before swap:", whaleUSDCBefore);
-        console.log("Whale USDT before swap:", whaleUSDTBefore);
+        uint256 whaleUsdcBefore = tokenA.balanceOf(whale);
+        uint256 whaleUsdtBefore = tokenB.balanceOf(whale);
+        console.log("Whale USDC.e before swap:", whaleUsdcBefore);
+        console.log("Whale USDT before swap:", whaleUsdtBefore);
         bytes memory commands = abi.encodePacked(bytes1(v3SwapExactIn));
         bytes memory path = abi.encodePacked(address(tokenA), tickSpacing, address(tokenB));
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = abi.encode(whale, swapAmount, 0, path, true);
         IUniversalRouter(universalRouter).execute(commands, inputs, block.timestamp + 1 hours);
-        uint256 whaleUSDCAfter = tokenA.balanceOf(whale);
-        uint256 whaleUSDTAfter = tokenB.balanceOf(whale);
-        console.log("Whale USDC.e after swap:", whaleUSDCAfter);
-        console.log("Whale USDT after swap:", whaleUSDTAfter);
-        console.log("USDC.e swapped:", whaleUSDCBefore - whaleUSDCAfter);
-        console.log("USDT received:", whaleUSDTAfter - whaleUSDTBefore);
+        uint256 whaleUsdcAfter = tokenA.balanceOf(whale);
+        uint256 whaleUsdtAfter = tokenB.balanceOf(whale);
+        console.log("Whale USDC.e after swap:", whaleUsdcAfter);
+        console.log("Whale USDT after swap:", whaleUsdtAfter);
+        console.log("USDC.e swapped:", whaleUsdcBefore - whaleUsdcAfter);
+        console.log("USDT received:", whaleUsdtAfter - whaleUsdtBefore);
         vm.stopPrank();
     }
 
